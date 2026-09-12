@@ -1,0 +1,20 @@
+# Dependencies and local package-manager cache
+node_modules/
+.pnpm-store/
+
+# Build output and test reports
+.next/
+dist/
+out/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local logs and OS files
+*.log
+.DS_Store
