@@ -18,12 +18,13 @@
 - Root and application package manifests are private.
 - pnpm is pinned to `12.4.1` through `packageManager`; the lockfile is generated.
 - `web` runs Next.js 16 with App Router, React 19, TypeScript, and Tailwind CSS 4.
-- `/` renders a minimal Polish Nature Lens welcome page with responsive styling and page metadata.
+- `/` renders a minimal English Nature Lens welcome page with responsive styling, English page metadata, and `lang="en"`.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `.gitignore` excludes dependencies, build output, local environment files, logs, and `.DS_Store`, while allowing environment examples.
 
 ## Important current decisions
 
+- English is the project language for UI copy, messages, metadata, code comments, and documentation. The product remains focused on Poland.
 - Applications live directly in `web/` and `api/`, without an `apps/` directory.
 - Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
 - `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both are Server Components; no client interaction is needed yet.

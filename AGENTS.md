@@ -288,6 +288,23 @@ Focus explanations on decisions that matter.
 
 ---
 
+## 🌐 Project language
+
+Use **English** for all newly written or edited project content:
+
+- user-facing UI copy, labels, placeholders, and accessibility text,
+- validation, error, and status messages,
+- page titles, descriptions, and other metadata,
+- code comments and repository documentation.
+
+Keep HTML language declarations consistent with the content (`lang="en"` for the current application).
+
+The application remains focused on Poland. Preserve proper names, scientific names, and original provider data rather than translating them automatically.
+
+Use the user's preferred language in conversation; the English requirement applies to project content.
+
+---
+
 ## 🏗️ Architecture guardrails
 
 Unless the product creates a real need, do not introduce:

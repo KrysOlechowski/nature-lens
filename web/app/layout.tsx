@@ -3,14 +3,14 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Nature Lens — przyroda Polski",
+  title: "Nature Lens — Nature in Poland",
   description:
-    "Nature Lens — projekt poświęcony obserwacjom gatunków i danym o przyrodzie Polski.",
+    "Nature Lens — a project exploring species observations and nature data across Poland.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pl">
+    <html lang="en">
       <body className="bg-stone-50 font-sans text-stone-900 antialiased">
         {children}
       </body>
