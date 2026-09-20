@@ -1,0 +1,16 @@
+node_modules/
+.pnpm-store/
+
+web/.next/
+web/out/
+api/dist/
+coverage/
+
+pnpm-lock.yaml
+*.tsbuildinfo
+web/next-env.d.ts
+
+.env
+.env.*
+!.env.example
+!.env.*.example
