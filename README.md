@@ -333,6 +333,15 @@ If pnpm is not on your PATH, you can run the same command through npm:
 npm exec --yes --package=pnpm@12.4.1 -- pnpm install
 ```
 
+Create the local environment files from the committed examples:
+
+```bash
+cp web/.env.example web/.env.local
+cp api/.env.example api/.env
+```
+
+The frontend requires `NEXT_PUBLIC_API_BASE_URL`, which is exposed to browser code and therefore must never contain a secret. Next.js embeds public environment values into the client bundle at build time. The API requires the server-only `PORT` value, loads it at startup, and converts it to a number. Both applications validate their required configuration before starting; missing values, malformed URLs, and invalid port numbers produce an immediate configuration error.
+
 Start the frontend from the repository root:
 
 ```bash
@@ -361,7 +370,7 @@ Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the full Ne
 pnpm dev:api
 ```
 
-The API listens on http://localhost:3001 with a global `/api` route prefix. It does not require a database or environment variables. No controllers are registered yet, so requests return HTTP 404; the health endpoint will be added in step 06.
+With the example configuration, the API listens on http://localhost:3001 with a global `/api` route prefix. It does not require a database yet. No controllers are registered, so requests return HTTP 404; the health endpoint will be added in step 06.
 
 Backend commands, also run from the repository root:
 
