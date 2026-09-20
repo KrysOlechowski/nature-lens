@@ -2,5 +2,8 @@
   "name": "nature-lens",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@12.4.1"
+  "packageManager": "pnpm@12.4.1",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev"
+  }
 }

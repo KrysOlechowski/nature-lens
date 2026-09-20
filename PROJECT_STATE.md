@@ -1,34 +1,45 @@
 # 📍 Project State
 
-> **Project:** Nature Lens  
-> **Status:** workspace initialized  
-> **Current phase:** Phase 1 · Repository foundation  
-> **Last completed step:** 01 · Initialize workspace  
-> **Current step:** 02 · Bootstrap Next.js application  
-> **Next step:** 03 · Bootstrap NestJS API
+> **Project:** Nature Lens
+>
+> **Status:** frontend bootstrapped
+>
+> **Current phase:** Phase 1 · Repository foundation
+>
+> **Last completed step:** 02 · Bootstrap Next.js application
+>
+> **Current step:** 03 · Bootstrap NestJS API
+>
+> **Next step:** 04 · Configure shared developer tooling
 
 ## What currently works
 
-- Git repository initialized on `main`; no commits have been created.
 - pnpm workspace recognizes the root package and the `web` and `api` packages.
 - Root and application package manifests are private.
 - pnpm is pinned to `12.4.1` through `packageManager`; the lockfile is generated.
+- `web` runs Next.js 16 with App Router, React 19, TypeScript, and Tailwind CSS 4.
+- `/` renders a minimal Polish Nature Lens welcome page with responsive styling and page metadata.
+- Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `.gitignore` excludes dependencies, build output, local environment files, logs, and `.DS_Store`, while allowing environment examples.
 
 ## Important current decisions
 
 - Applications live directly in `web/` and `api/`, without an `apps/` directory.
 - Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
-- Application directories currently contain only package manifests. No root scripts are needed yet; development and quality-check scripts will be added with the applications and tooling they require.
+- `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both are Server Components; no client interaction is needed yet.
+- Tailwind uses its PostCSS plugin. System fonts keep the page independent of external font downloads.
+- Root `dev:web` starts the frontend; other frontend scripts are invoked with `pnpm --filter web`. Shared tooling remains in step 04.
+- `typecheck` runs Next.js type generation before TypeScript so it also works before the first build.
+- Next.js automatic agent-file generation is disabled; repository instructions remain in the root `AGENTS.md`.
 - The target remains Next.js → Nature Lens API (NestJS modular monolith) → provider adapters and PostgreSQL/PostGIS on Supabase.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 
 ## Known limitations / blockers
 
-- Next.js and NestJS applications have not been bootstrapped.
-- No application dependencies, database, provider integrations, tests, CI, or deployment exist yet.
-- In the environment used for verification, `pnpm` was not on PATH and the bundled Corepack failed signature verification. Checks used pnpm 12.4.1 downloaded through npm; Corepack and the global pnpm installation were not changed.
-- No blocker remains for the workspace configuration. Make pnpm available locally or use the npm execution commands in README before the next step.
+- `api` contains only its package manifest; NestJS has not been bootstrapped.
+- The frontend is a static starting point: no species search, map, database, or provider integration exists yet.
+- Shared linting/formatting, application tests, CI, and deployment are not configured yet.
+- Verification required running the server and build outside the agent sandbox because it blocks local ports used by Next.js/Turbopack. No application blocker remains.
 
 ## Development commands
 
@@ -36,19 +47,24 @@ Run from the repository root with pnpm 12.4.1 available:
 
 ```bash
 pnpm install
-pnpm install --offline --frozen-lockfile
+pnpm dev:web
+pnpm --filter web typecheck
+pnpm --filter web build
+pnpm --filter web start
 ```
 
-The offline command requires the package-manager metadata and binary to have been downloaded by an initial online install.
+Open http://localhost:3000 after starting the server. Run `build` before `start`.
 
 ## Verification
 
-- Initial `pnpm install`: passed; all three workspace projects recognized.
-- `pnpm install --offline --frozen-lockfile`: passed.
-- Workspace discovery verified; root, `api`, and `web` recognized.
-- Ignore rules checked for local environment files, dependencies, build output, and OS files.
-- Step 01 Definition of Done is satisfied. No application tests or build commands exist at this stage.
+- `pnpm install --frozen-lockfile`: passed.
+- `pnpm --filter web typecheck`: passed.
+- `pnpm --filter web build`: passed; `/` is statically prerendered.
+- `pnpm dev:web`: served the welcome page successfully in the browser.
+- `pnpm --filter web start`: HTTP 200; production page visually checked at desktop and mobile widths.
+- `git diff --check`: passed.
+- Step 02 Definition of Done is satisfied: `web` runs locally and renders a simple Nature Lens page.
 
 ## Next implementation
 
-Implement only **02 · Bootstrap Next.js application** after discussing and approving its approach. See its section in `IMPLEMENTATION_PLAN.md`.
+Implement only **03 · Bootstrap NestJS API** after discussing and approving its approach. See its section in `IMPLEMENTATION_PLAN.md`.

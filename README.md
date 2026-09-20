@@ -300,12 +300,12 @@ The project will also not provide mushroom-edibility decisions or other safety-c
 
 ## 📦 Repository structure
 
-The repository uses a small pnpm workspace. The frontend and backend directories currently contain package manifests; application code will be added in the next steps.
+The repository uses a small pnpm workspace. The frontend runs a minimal Next.js application; the backend currently contains only a package manifest.
 
 ```text
 nature-lens/
 │
-├── web/                    # Future Next.js frontend
+├── web/                    # Next.js frontend (App Router)
 ├── api/                    # Future NestJS backend
 │
 ├── README.md
@@ -333,13 +333,33 @@ If pnpm is not on your PATH, you can run the same command through npm:
 npm exec --yes --package=pnpm@12.4.1 -- pnpm install
 ```
 
-Development, build, lint, typecheck, and test scripts will be added when their corresponding applications and tooling exist.
+Start the frontend from the repository root:
+
+```bash
+pnpm dev:web
+```
+
+Open http://localhost:3000 to view the Nature Lens welcome page. It is a static starting point; species search and observation data will be added in later steps.
+
+Frontend commands, also run from the repository root:
+
+```bash
+pnpm --filter web typecheck
+pnpm --filter web build
+pnpm --filter web start
+```
+
+`start` serves the production build, so run `build` first. `typecheck` generates Next.js route types before checking TypeScript, including on a fresh checkout.
+
+The frontend uses Next.js 16, React 19, TypeScript, and Tailwind CSS 4. In `web/app/`, `layout.tsx` defines the HTML document and metadata, `page.tsx` renders `/`, and `globals.css` imports Tailwind. The layout and page are Server Components by default; no client-side interaction is needed yet.
+
+Shared linting and formatting will be configured in step 04. No application test suite exists yet.
 
 ---
 
 ## 🚦 Project status
 
-> 🟡 **Status: early development / repository bootstrap**
+> 🟡 **Status: early development / frontend bootstrap**
 
 The project is being built incrementally through small, working vertical slices.
 
