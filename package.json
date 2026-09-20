@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@12.4.1",
   "scripts": {
+    "dev:api": "pnpm --filter api dev",
     "dev:web": "pnpm --filter web dev"
   }
 }

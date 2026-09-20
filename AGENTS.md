@@ -145,6 +145,8 @@ For every implementation task:
 
 ### Context discipline
 
+Do not re-read files or documentation already inspected during the current task unless they may have changed or new information makes re-reading necessary.
+
 Gather the **minimum repository context required for the current task**.
 
 Do not scan or read the entire repository by default.
@@ -198,6 +200,16 @@ In particular:
 ---
 
 ## 🧪 Verification
+
+### Efficient verification
+
+Use the smallest verification loop that provides meaningful confidence for the current change.
+
+- Do not repeatedly run the same failing command without a new hypothesis or code/configuration change.
+- If the same verification fails twice for what appears to be an environment, sandbox, port, or tooling limitation, stop retrying it and explain the limitation.
+- Do not start development or production servers unless runtime verification is necessary for the current step.
+- Prefer targeted checks for the changed application or package over repository-wide checks.
+- Do not repeat a successful expensive check unless subsequent changes could invalidate its result.
 
 After implementation, run checks appropriate to the scope of the change.
 

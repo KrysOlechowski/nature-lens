@@ -300,13 +300,13 @@ The project will also not provide mushroom-edibility decisions or other safety-c
 
 ## 📦 Repository structure
 
-The repository uses a small pnpm workspace. The frontend runs a minimal Next.js application; the backend currently contains only a package manifest.
+The repository uses a small pnpm workspace. The frontend runs a minimal Next.js application; the backend runs a minimal NestJS API without a database.
 
 ```text
 nature-lens/
 │
 ├── web/                    # Next.js frontend (App Router)
-├── api/                    # Future NestJS backend
+├── api/                    # NestJS backend
 │
 ├── README.md
 ├── ARCHITECTURE.md
@@ -352,6 +352,28 @@ pnpm --filter web start
 `start` serves the production build, so run `build` first. `typecheck` generates Next.js route types before checking TypeScript, including on a fresh checkout.
 
 The frontend uses Next.js 16, React 19, TypeScript, and Tailwind CSS 4. In `web/app/`, `layout.tsx` defines the HTML document and metadata, `page.tsx` renders `/`, and `globals.css` imports Tailwind. The layout and page are Server Components by default; no client-side interaction is needed yet.
+
+Start the backend from the repository root in a separate terminal:
+
+Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the full Nest CLI toolchain, including its generators ([NestJS prerequisites](https://docs.nestjs.com/first-steps#prerequisites)). The locally installed Node.js 22.22.0 passed build and server checks, while Node.js 23.3.0 failed to load a CLI dependency. If using nvm, select the appropriate Node version with `nvm use` before running the backend commands.
+
+```bash
+pnpm dev:api
+```
+
+The API listens on http://localhost:3001 with a global `/api` route prefix. It does not require a database or environment variables. No controllers are registered yet, so requests return HTTP 404; the health endpoint will be added in step 06.
+
+Backend commands, also run from the repository root:
+
+```bash
+pnpm --filter api typecheck
+pnpm --filter api build
+pnpm --filter api start
+```
+
+`dev:api` recompiles and restarts the backend when source files change. `start` runs the compiled application, so run `build` first.
+
+The backend uses NestJS 12 with its default Express adapter and native ES modules. In `api/src/`, `main.ts` creates the application, sets the route prefix, and starts the HTTP server; `app.module.ts` defines the root module. Feature modules, controllers, and providers will be added as product functionality is implemented.
 
 Shared linting and formatting will be configured in step 04. No application test suite exists yet.
 
