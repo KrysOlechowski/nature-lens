@@ -1,4 +1,9 @@
-export default function HomePage() {
+import { getApiConnection } from "./api-health";
+
+export default async function HomePage() {
+  const apiConnection = await getApiConnection();
+  const isApiConnected = apiConnection.status === "connected";
+
   return (
     <main className="flex min-h-svh items-center justify-center px-6 py-16">
       <div className="w-full max-w-2xl border-t-4 border-emerald-800 pt-8 sm:pt-12">
@@ -16,6 +21,27 @@ export default function HomePage() {
           This project is under development. Species search and an observation
           map will be added in future stages.
         </p>
+        <section
+          className="mt-6 flex items-center justify-between gap-4 rounded-lg border border-stone-200 bg-white px-4 py-3 text-sm"
+          aria-label="Development status"
+        >
+          <span className="font-medium text-stone-700">Nature Lens API</span>
+          <span
+            className={`inline-flex items-center gap-2 font-medium ${
+              isApiConnected ? "text-emerald-700" : "text-amber-700"
+            }`}
+          >
+            <span
+              className={`size-2 rounded-full ${
+                isApiConnected ? "bg-emerald-600" : "bg-amber-600"
+              }`}
+              aria-hidden="true"
+            />
+            {isApiConnected
+              ? `Connected · contract v${apiConnection.health.version}`
+              : "Unavailable"}
+          </span>
+        </section>
       </div>
     </main>
   );

@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, and shared developer tooling bootstrapped
+> **Status:** frontend and API connected through the first vertical slice
 >
-> **Current phase:** Phase 1 · Repository foundation
+> **Current phase:** Phase 2 · PostgreSQL and PostGIS
 >
-> **Last completed step:** 06 · Add API health endpoint
+> **Last completed step:** 07 · Connect Next.js to Nature Lens API
 >
-> **Current step:** 07 · Connect Next.js to Nature Lens API
+> **Current step:** Manual setup · Create development Supabase project
 >
-> **Next step:** Manual setup · Create development Supabase project, then 08 · Configure PostgreSQL access
+> **Next step:** 08 · Configure PostgreSQL access
 
 ## What currently works
 
@@ -18,7 +18,8 @@
 - Root and application package manifests are private.
 - pnpm is pinned to `12.4.1` through `packageManager`; the lockfile is generated.
 - `web` runs Next.js 16 with App Router, React 19, TypeScript, and Tailwind CSS 4.
-- `/` renders a minimal English Nature Lens welcome page with responsive styling, English page metadata, and `lang="en"`.
+- `/` renders a minimal English Nature Lens welcome page with responsive styling, English page metadata, `lang="en"`, and the current API connection status.
+- The Next.js Server Component fetches and validates `GET /api/health`; network, HTTP, and contract failures render a non-fatal unavailable state.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `api` runs NestJS 12 without a database, using a validated `PORT` environment variable and a global `/api` route prefix.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
@@ -42,6 +43,8 @@
 - The health endpoint uses a thin controller and a dedicated response DTO. Its version field identifies the health response contract rather than the package release version.
 - Zod schemas are the only entry points from untyped environment variables into application code. The applications keep separate schemas rather than introducing a shared configuration package before one is needed.
 - `NEXT_PUBLIC_API_BASE_URL` is intentionally public and build-time configuration for browser code. It must never contain a secret.
+- The home page health check runs server-side with caching disabled, so it reflects the API state for each page request without requiring browser CORS configuration.
+- The frontend validates the health response at its network boundary and treats unexpected HTTP responses or payloads as API unavailability.
 - `PORT` remains server-only runtime configuration. The API loads local values with `dotenv`, coerces the string to a number, and rejects values outside the valid TCP port range.
 - ESLint uses one root flat config scoped to each application; formatting rules are delegated to Prettier rather than duplicated in ESLint.
 - Shared developer tooling stays at the workspace root instead of introducing a publishable config package or custom configuration framework.
@@ -53,7 +56,7 @@
 ## Known limitations / blockers
 
 - The API currently exposes only the health endpoint; domain endpoints begin in later steps.
-- The frontend is a static starting point: no species search, map, database, or provider integration exists yet.
+- The frontend only reports API health: no species search, map, database, or provider integration exists yet.
 - Application tests, CI, and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
@@ -91,13 +94,15 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm lint`: passed after adding the health endpoint.
 - Targeted Prettier check for the changed API source files: passed.
 - Runtime request to `GET /api/health`: returned `200 OK` with `{"status":"ok","version":"1"}`.
+- Runtime request to the production frontend with the API available rendered `Connected · contract v1`.
+- Runtime request to the production frontend with an unreachable API rendered `Unavailable` without failing the page.
 - `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web exec next build --webpack`: passed.
 - API startup checks rejected a missing `PORT` and a port above 65535 before NestJS started.
 - Next.js type generation rejected a missing API URL and a non-HTTP(S) API URL while loading its configuration.
 - `pnpm build`: launched both application builds, but the default frontend Turbopack build could not complete because the agent environment blocked its local CSS-processing port.
 - `git diff --check`: passed.
-- Step 06 Definition of Done is satisfied: the health endpoint reliably returns `200` with a predictable status/version payload.
+- Step 07 Definition of Done is satisfied: Next.js fetches the NestJS health response without contacting an external provider and handles network failure gracefully.
 
 ## Next implementation
 
-Implement only **07 · Connect Next.js to Nature Lens API** after discussing and approving its approach. See its section in `IMPLEMENTATION_PLAN.md`.
+Complete **Manual setup · Create development Supabase project**, then discuss and approve **08 · Configure PostgreSQL access** before implementing it. See the corresponding sections in `IMPLEMENTATION_PLAN.md`.
