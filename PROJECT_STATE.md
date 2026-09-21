@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend and API connected through the first vertical slice
+> **Status:** frontend, API, and development PostgreSQL connected
 >
 > **Current phase:** Phase 2 · PostgreSQL and PostGIS
 >
-> **Last completed step:** Manual setup · Create development Supabase project
+> **Last completed step:** 08 · Configure PostgreSQL access
 >
-> **Current step:** 08 · Configure PostgreSQL access
+> **Current step:** 09 · Add database migrations and enable PostGIS
 >
-> **Next step:** 09 · Add database migrations and enable PostGIS
+> **Next step:** 10 · Add Species domain model
 
 ## What currently works
 
@@ -21,11 +21,12 @@
 - `/` renders a minimal English Nature Lens welcome page with responsive styling, English page metadata, `lang="en"`, and the current API connection status.
 - The Next.js Server Component fetches and validates `GET /api/health`; network, HTTP, and contract failures render a non-fatal unavailable state.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
-- `api` runs NestJS 12 without a database, using a validated `PORT` environment variable and a global `/api` route prefix.
-- A development Supabase project exists, and its PostgreSQL connection string is stored locally in the ignored `api/.env` file.
+- `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
+- The API validates its server-only database configuration, creates one bounded PostgreSQL connection pool per process, verifies the connection before startup, and closes the pool during application shutdown.
+- The development connection string is stored locally in the ignored `api/.env` file and uses the Supabase Session pooler for IPv4 compatibility.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
-- `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port before NestJS starts.
+- `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
 - Root commands lint, typecheck, build, and format both applications consistently.
 - ESLint applies Next.js Core Web Vitals rules to `web` and recommended TypeScript and Node.js rules to `api`.
 - Prettier can check or update formatting across the repository with shared defaults and LF line endings.
@@ -53,12 +54,16 @@
 - Next.js automatic agent-file generation is disabled; repository instructions remain in the root `AGENTS.md`.
 - The target remains Next.js → Nature Lens API (NestJS modular monolith) → provider adapters and PostgreSQL/PostGIS on Supabase.
 - The development database uses Supabase without the GitHub integration, automatic RLS event trigger, or dedicated IPv4 add-on; these can be introduced later if a concrete requirement justifies them.
+- PostgreSQL access uses the low-level `pg` driver so application code can use parameterized SQL and PostGIS directly without an ORM-specific persistence model.
+- `DatabaseService` owns one `pg.Pool` per API process. The pool defaults to at most five connections, can be configured with `DATABASE_POOL_MAX`, and is shared by modules that import `DatabaseModule`.
+- Database availability is required for the API to start; an initial `SELECT 1` fails fast when credentials or connectivity are invalid.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 
 ## Known limitations / blockers
 
 - The API currently exposes only the health endpoint; domain endpoints begin in later steps.
 - The frontend only reports API health: no species search, map, database, or provider integration exists yet.
+- Database migrations and PostGIS are not configured yet; they are the scope of step 09.
 - Application tests, CI, and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
@@ -105,7 +110,17 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `git diff --check`: passed.
 - Step 07 Definition of Done is satisfied: Next.js fetches the NestJS health response without contacting an external provider and handles network failure gracefully.
 - Manual Supabase setup is complete: the development project exists and its connection string is stored locally outside Git.
+- `pnpm --filter api typecheck`: passed after adding PostgreSQL access.
+- `pnpm --filter api build`: passed.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- Configuration startup check rejected a non-PostgreSQL `DATABASE_URL` before NestJS initialization.
+- API startup connected to the development Supabase database through the Session pooler and completed `SELECT 1`.
+- Runtime request to `GET /api/health` returned `200 OK` with `{"status":"ok","version":"1"}` while the database connection was active.
+- `pnpm peers check`: passed with no peer dependency issues.
+- `git check-ignore -v api/.env`: confirmed that the local connection string remains ignored by Git.
+- Step 08 Definition of Done is satisfied: the API connects to PostgreSQL and executes a connection check before accepting requests.
 
 ## Next implementation
 
-Discuss and approve **08 · Configure PostgreSQL access** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **09 · Add database migrations and enable PostGIS** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

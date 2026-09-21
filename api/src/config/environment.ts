@@ -5,6 +5,13 @@ config({ quiet: true });
 
 const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535),
+  DATABASE_URL: z
+    .url()
+    .refine(
+      (url) => ["postgres:", "postgresql:"].includes(new URL(url).protocol),
+      "DATABASE_URL must use the postgres:// or postgresql:// protocol",
+    ),
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(20).default(5),
 });
 
 const parsedEnvironment = environmentSchema.safeParse(process.env);

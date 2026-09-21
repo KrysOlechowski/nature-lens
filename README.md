@@ -300,7 +300,7 @@ The project will also not provide mushroom-edibility decisions or other safety-c
 
 ## 📦 Repository structure
 
-The repository uses a small pnpm workspace. The frontend runs a minimal Next.js application; the backend runs a minimal NestJS API without a database.
+The repository uses a small pnpm workspace. The frontend runs a Next.js application; the backend runs a NestJS API connected to PostgreSQL on Supabase.
 
 ```text
 nature-lens/
@@ -340,7 +340,9 @@ cp web/.env.example web/.env.local
 cp api/.env.example api/.env
 ```
 
-The frontend requires `NEXT_PUBLIC_API_BASE_URL`, which is exposed to browser code and therefore must never contain a secret. Next.js embeds public environment values into the client bundle at build time. The API requires the server-only `PORT` value, loads it at startup, and converts it to a number. Both applications validate their required configuration before starting; missing values, malformed URLs, and invalid port numbers produce an immediate configuration error.
+Replace the placeholder `DATABASE_URL` in `api/.env` with the connection string for the development Supabase project. Keep this value local: it contains database credentials and must never be committed.
+
+The frontend requires `NEXT_PUBLIC_API_BASE_URL`, which is exposed to browser code and therefore must never contain a secret. Next.js embeds public environment values into the client bundle at build time. The API requires the server-only `PORT` and `DATABASE_URL` values. `DATABASE_POOL_MAX` controls the maximum number of PostgreSQL connections held by one API process and defaults to `5`. Both applications validate their configuration before starting; missing values, malformed URLs, invalid port numbers, and invalid pool sizes produce an immediate configuration error.
 
 Start the frontend from the repository root:
 
