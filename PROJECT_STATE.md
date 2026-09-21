@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 2 · PostgreSQL and PostGIS
 >
-> **Last completed step:** 07 · Connect Next.js to Nature Lens API
+> **Last completed step:** Manual setup · Create development Supabase project
 >
-> **Current step:** Manual setup · Create development Supabase project
+> **Current step:** 08 · Configure PostgreSQL access
 >
-> **Next step:** 08 · Configure PostgreSQL access
+> **Next step:** 09 · Add database migrations and enable PostGIS
 
 ## What currently works
 
@@ -22,6 +22,7 @@
 - The Next.js Server Component fetches and validates `GET /api/health`; network, HTTP, and contract failures render a non-fatal unavailable state.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `api` runs NestJS 12 without a database, using a validated `PORT` environment variable and a global `/api` route prefix.
+- A development Supabase project exists, and its PostgreSQL connection string is stored locally in the ignored `api/.env` file.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port before NestJS starts.
@@ -51,6 +52,7 @@
 - The optional `unrs-resolver` install script is explicitly disabled; the installed prebuilt resolver works without approving it.
 - Next.js automatic agent-file generation is disabled; repository instructions remain in the root `AGENTS.md`.
 - The target remains Next.js → Nature Lens API (NestJS modular monolith) → provider adapters and PostgreSQL/PostGIS on Supabase.
+- The development database uses Supabase without the GitHub integration, automatic RLS event trigger, or dedicated IPv4 add-on; these can be introduced later if a concrete requirement justifies them.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 
 ## Known limitations / blockers
@@ -102,7 +104,8 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm build`: launched both application builds, but the default frontend Turbopack build could not complete because the agent environment blocked its local CSS-processing port.
 - `git diff --check`: passed.
 - Step 07 Definition of Done is satisfied: Next.js fetches the NestJS health response without contacting an external provider and handles network failure gracefully.
+- Manual Supabase setup is complete: the development project exists and its connection string is stored locally outside Git.
 
 ## Next implementation
 
-Complete **Manual setup · Create development Supabase project**, then discuss and approve **08 · Configure PostgreSQL access** before implementing it. See the corresponding sections in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **08 · Configure PostgreSQL access** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
