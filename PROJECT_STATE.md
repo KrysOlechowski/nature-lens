@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 2 · PostgreSQL and PostGIS
 >
-> **Last completed step:** 10 · Add Species domain model
+> **Last completed step:** 11 · Add Observation geospatial model
 >
-> **Current step:** 11 · Add Observation geospatial model
+> **Current step:** 12 · Add spatial and lookup indexes
 >
-> **Next step:** 12 · Add spatial and lookup indexes
+> **Next step:** 13 · Add persistence integration test foundation
 
 ## What currently works
 
@@ -27,6 +27,7 @@
 - Database schema changes are versioned as TypeScript migrations in `api/migrations` and can be applied explicitly from the repository root.
 - The first migration creates the dedicated `extensions` schema, enables PostGIS there, and records its application in the migration history.
 - The `species` table stores application-owned species identities, scientific and display names, basic taxonomy, and timestamps independently of external providers.
+- The `observations` table relates normalized biodiversity observations to species and stores their observation time, WGS84 point location, positional accuracy, obscured-location status, provider identity, external identifier, and source URL.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
@@ -66,12 +67,18 @@
 - Species use an identity-backed internal `bigint` primary key. Scientific names are required and unique; display names and taxonomy fields remain optional because providers may not supply them consistently.
 - Species text constraints reject blank values while preserving `NULL` for genuinely unavailable optional data. Provider-specific identifiers do not belong to the core species table.
 - Species timestamps default to the insertion time. Future persistence writes will maintain `updated_at`; no database trigger is introduced before update behavior exists.
+- Observations use PostGIS `geometry(Point, 4326)` because the initial product needs map and bounding-box queries over WGS84 coordinates; distance calculations that could justify `geography` are not required yet.
+- Observation coordinates must be nonempty and stay within valid longitude and latitude ranges. Positional accuracy is optional, measured in meters, and must be finite and nonnegative when present.
+- Observation location obscurity uses a nullable boolean: `true` means obscured, `false` means explicitly unobscured, and `NULL` means the provider did not supply enough information. Unknown sensitivity metadata must never be interpreted as an unobscured location.
+- Observation provenance is stored as a nonblank provider, provider-scoped external identifier, and source URL. Provider/external-ID uniqueness and query indexes belong to the next step.
+- Deleting a species referenced by observations is restricted so observation records cannot become detached from their normalized species identity.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 
 ## Known limitations / blockers
 
 - The API currently exposes only the health endpoint; domain endpoints begin in later steps.
 - The frontend only reports API health: no species search, map, domain persistence, or provider integration exists yet.
+- Observation spatial and lookup indexes are not present yet; they are the focus of step 12.
 - Application tests, CI, and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
@@ -149,7 +156,18 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - Database inspection confirmed all species columns, identity and timestamp defaults, primary key, unique scientific name, nonblank text constraints, and migration-history entry.
 - Down-migration dry run generated `DROP TABLE "species"` and removal of the migration-history entry without modifying the database.
 - Step 10 Definition of Done is satisfied: a repository-owned migration creates the provider-independent species table with sensible constraints.
+- `pnpm --filter api typecheck`: passed for the observation migration.
+- `pnpm lint`: passed for `web` and `api` after adding the observation migration.
+- Targeted Prettier check for the observation migration: passed.
+- Migration dry run generated the `observations` table with a species foreign key, WGS84 point, observation metadata, coordinate and accuracy constraints, and provider provenance.
+- `pnpm --filter api db:migrate`: applied `20260922154444000_add-observation-geospatial-model` to the development Supabase database.
+- A second migration run reported no pending migrations.
+- Database inspection confirmed the observation columns, nullable boolean obscurity status, PostGIS geometry type in the `extensions` schema, constraints, foreign key, and migration-history entry.
+- A transactionally rolled-back verification insert persisted a Warsaw point with SRID 4326 and source information; a longitude of `181` was rejected by `observations_location_check` with SQLSTATE `23514`.
+- A transactionally rolled-back verification confirmed that `location_obscured` preserves all three semantic states: `true`, `false`, and `NULL`.
+- Down-migration dry run generated `DROP TABLE "observations"` and removal of the migration-history entry without modifying the database.
+- Step 11 Definition of Done is satisfied: the database can persist a valid observation point with its species relationship, sensitivity metadata, and source provenance.
 
 ## Next implementation
 
-Discuss and approve **11 · Add Observation geospatial model** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **12 · Add spatial and lookup indexes** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
