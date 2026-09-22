@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 2 · PostgreSQL and PostGIS
 >
-> **Last completed step:** 09 · Add database migrations and enable PostGIS
+> **Last completed step:** 10 · Add Species domain model
 >
-> **Current step:** 10 · Add Species domain model
+> **Current step:** 11 · Add Observation geospatial model
 >
-> **Next step:** 11 · Add Observation geospatial model
+> **Next step:** 12 · Add spatial and lookup indexes
 
 ## What currently works
 
@@ -26,6 +26,7 @@
 - The development connection string is stored locally in the ignored `api/.env` file and uses the Supabase Session pooler for IPv4 compatibility.
 - Database schema changes are versioned as TypeScript migrations in `api/migrations` and can be applied explicitly from the repository root.
 - The first migration creates the dedicated `extensions` schema, enables PostGIS there, and records its application in the migration history.
+- The `species` table stores application-owned species identities, scientific and display names, basic taxonomy, and timestamps independently of external providers.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
@@ -62,6 +63,9 @@
 - `node-pg-migrate` manages schema evolution without introducing an ORM. Migrations run through explicit commands rather than during API startup.
 - PostGIS is installed in the dedicated `extensions` schema instead of `public`, keeping extension-owned objects outside the schema exposed by the Supabase Data API.
 - The PostGIS down migration uses `DROP EXTENSION` without `CASCADE`, so PostgreSQL refuses an unsafe rollback when dependent spatial objects exist. The shared `extensions` schema is intentionally preserved.
+- Species use an identity-backed internal `bigint` primary key. Scientific names are required and unique; display names and taxonomy fields remain optional because providers may not supply them consistently.
+- Species text constraints reject blank values while preserving `NULL` for genuinely unavailable optional data. Provider-specific identifiers do not belong to the core species table.
+- Species timestamps default to the insertion time. Future persistence writes will maintain `updated_at`; no database trigger is introduced before update behavior exists.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 
 ## Known limitations / blockers
@@ -137,7 +141,15 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - Database inspection confirmed PostGIS `3.3.7` in the `extensions` schema and the migration in `public.pgmigrations`; `extensions.postgis_version()` executed successfully.
 - Down-migration dry run generated restrictive `DROP EXTENSION postgis` without `CASCADE` and removal of the migration-history entry.
 - Step 09 Definition of Done is satisfied: the database migration history is repository-owned, and applying the migrations enables a working PostGIS installation without manual dashboard setup.
+- `pnpm --filter api typecheck`: passed for the species migration.
+- Targeted Prettier check for the species migration: passed.
+- Migration dry run generated the `species` table with an identity primary key, required unique scientific name, optional taxonomy, nonblank text constraints, and timestamp defaults.
+- `pnpm db:migrate`: applied `20260922151205000_add-species-model` to the development Supabase database.
+- A second `pnpm db:migrate` reported no pending migrations.
+- Database inspection confirmed all species columns, identity and timestamp defaults, primary key, unique scientific name, nonblank text constraints, and migration-history entry.
+- Down-migration dry run generated `DROP TABLE "species"` and removal of the migration-history entry without modifying the database.
+- Step 10 Definition of Done is satisfied: a repository-owned migration creates the provider-independent species table with sensible constraints.
 
 ## Next implementation
 
-Discuss and approve **10 · Add Species domain model** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **11 · Add Observation geospatial model** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
