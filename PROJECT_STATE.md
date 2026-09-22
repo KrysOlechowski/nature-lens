@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, and development PostgreSQL connected
+> **Status:** frontend, API, PostgreSQL, and PostGIS connected
 >
 > **Current phase:** Phase 2 · PostgreSQL and PostGIS
 >
-> **Last completed step:** 08 · Configure PostgreSQL access
+> **Last completed step:** 09 · Add database migrations and enable PostGIS
 >
-> **Current step:** 09 · Add database migrations and enable PostGIS
+> **Current step:** 10 · Add Species domain model
 >
-> **Next step:** 10 · Add Species domain model
+> **Next step:** 11 · Add Observation geospatial model
 
 ## What currently works
 
@@ -24,6 +24,8 @@
 - `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
 - The API validates its server-only database configuration, creates one bounded PostgreSQL connection pool per process, verifies the connection before startup, and closes the pool during application shutdown.
 - The development connection string is stored locally in the ignored `api/.env` file and uses the Supabase Session pooler for IPv4 compatibility.
+- Database schema changes are versioned as TypeScript migrations in `api/migrations` and can be applied explicitly from the repository root.
+- The first migration creates the dedicated `extensions` schema, enables PostGIS there, and records its application in the migration history.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
@@ -57,13 +59,15 @@
 - PostgreSQL access uses the low-level `pg` driver so application code can use parameterized SQL and PostGIS directly without an ORM-specific persistence model.
 - `DatabaseService` owns one `pg.Pool` per API process. The pool defaults to at most five connections, can be configured with `DATABASE_POOL_MAX`, and is shared by modules that import `DatabaseModule`.
 - Database availability is required for the API to start; an initial `SELECT 1` fails fast when credentials or connectivity are invalid.
+- `node-pg-migrate` manages schema evolution without introducing an ORM. Migrations run through explicit commands rather than during API startup.
+- PostGIS is installed in the dedicated `extensions` schema instead of `public`, keeping extension-owned objects outside the schema exposed by the Supabase Data API.
+- The PostGIS down migration uses `DROP EXTENSION` without `CASCADE`, so PostgreSQL refuses an unsafe rollback when dependent spatial objects exist. The shared `extensions` schema is intentionally preserved.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 
 ## Known limitations / blockers
 
 - The API currently exposes only the health endpoint; domain endpoints begin in later steps.
-- The frontend only reports API health: no species search, map, database, or provider integration exists yet.
-- Database migrations and PostGIS are not configured yet; they are the scope of step 09.
+- The frontend only reports API health: no species search, map, domain persistence, or provider integration exists yet.
 - Application tests, CI, and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
@@ -81,6 +85,9 @@ pnpm format:check
 pnpm format
 pnpm typecheck
 pnpm build
+pnpm db:migrate
+pnpm db:migrate:create migration-name
+pnpm db:migrate:down
 pnpm dev:web
 pnpm --filter web start
 pnpm dev:api
@@ -120,7 +127,17 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm peers check`: passed with no peer dependency issues.
 - `git check-ignore -v api/.env`: confirmed that the local connection string remains ignored by Git.
 - Step 08 Definition of Done is satisfied: the API connects to PostgreSQL and executes a connection check before accepting requests.
+- `pnpm --filter api typecheck`: passed for the API source and TypeScript migrations.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- `git diff --check`: passed.
+- Migration dry run generated `CREATE SCHEMA IF NOT EXISTS extensions`, `CREATE EXTENSION postgis SCHEMA extensions`, and the migration-history insert without modifying the database.
+- `pnpm db:migrate`: applied `20260921183645533_enable-postgis` to the development Supabase database.
+- A second `pnpm db:migrate` reported no pending migrations.
+- Database inspection confirmed PostGIS `3.3.7` in the `extensions` schema and the migration in `public.pgmigrations`; `extensions.postgis_version()` executed successfully.
+- Down-migration dry run generated restrictive `DROP EXTENSION postgis` without `CASCADE` and removal of the migration-history entry.
+- Step 09 Definition of Done is satisfied: the database migration history is repository-owned, and applying the migrations enables a working PostGIS installation without manual dashboard setup.
 
 ## Next implementation
 
-Discuss and approve **09 · Add database migrations and enable PostGIS** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **10 · Add Species domain model** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

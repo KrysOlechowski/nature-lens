@@ -307,6 +307,7 @@ nature-lens/
 │
 ├── web/                    # Next.js frontend (App Router)
 ├── api/                    # NestJS backend
+│   └── migrations/         # Versioned PostgreSQL schema changes
 │
 ├── README.md
 ├── ARCHITECTURE.md
@@ -372,7 +373,7 @@ Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the full Ne
 pnpm dev:api
 ```
 
-With the example configuration, the API listens on http://localhost:3001 with a global `/api` route prefix. It does not require a database yet. No controllers are registered, so requests return HTTP 404; the health endpoint will be added in step 06.
+With the example configuration, the API listens on http://localhost:3001 with a global `/api` route prefix. PostgreSQL must be reachable before the API starts. `GET /api/health` reports the API contract status.
 
 Backend commands, also run from the repository root:
 
@@ -384,9 +385,24 @@ pnpm --filter api start
 
 `dev:api` recompiles and restarts the backend when source files change. `start` runs the compiled application, so run `build` first.
 
+Apply pending database migrations before starting a freshly configured environment:
+
+```bash
+pnpm db:migrate
+```
+
+Create a TypeScript migration with a UTC timestamp or revert the most recently applied migration with:
+
+```bash
+pnpm db:migrate:create migration-name
+pnpm db:migrate:down
+```
+
+Migrations load the server-only `DATABASE_URL` from `api/.env`. They run explicitly rather than as a side effect of API startup. The first migration enables PostGIS in the dedicated `extensions` schema.
+
 The backend uses NestJS 12 with its default Express adapter and native ES modules. In `api/src/`, `main.ts` creates the application, sets the route prefix, and starts the HTTP server; `app.module.ts` defines the root module. Feature modules, controllers, and providers will be added as product functionality is implemented.
 
-Shared linting and formatting will be configured in step 04. No application test suite exists yet.
+No application test suite exists yet.
 
 ---
 
