@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 2 · PostgreSQL and PostGIS
 >
-> **Last completed step:** 11 · Add Observation geospatial model
+> **Last completed step:** 12 · Add spatial and lookup indexes
 >
-> **Current step:** 12 · Add spatial and lookup indexes
+> **Current step:** 13 · Add persistence integration test foundation
 >
-> **Next step:** 13 · Add persistence integration test foundation
+> **Next step:** 14 · Add external HTTP client foundation
 
 ## What currently works
 
@@ -28,6 +28,7 @@
 - The first migration creates the dedicated `extensions` schema, enables PostGIS there, and records its application in the migration history.
 - The `species` table stores application-owned species identities, scientific and display names, basic taxonomy, and timestamps independently of external providers.
 - The `observations` table relates normalized biodiversity observations to species and stores their observation time, WGS84 point location, positional accuracy, obscured-location status, provider identity, external identifier, and source URL.
+- Observation queries are supported by a GiST location index, a B-tree species lookup index, and provider-scoped external-ID uniqueness.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
@@ -70,7 +71,8 @@
 - Observations use PostGIS `geometry(Point, 4326)` because the initial product needs map and bounding-box queries over WGS84 coordinates; distance calculations that could justify `geography` are not required yet.
 - Observation coordinates must be nonempty and stay within valid longitude and latitude ranges. Positional accuracy is optional, measured in meters, and must be finite and nonnegative when present.
 - Observation location obscurity uses a nullable boolean: `true` means obscured, `false` means explicitly unobscured, and `NULL` means the provider did not supply enough information. Unknown sensitivity metadata must never be interpreted as an unobscured location.
-- Observation provenance is stored as a nonblank provider, provider-scoped external identifier, and source URL. Provider/external-ID uniqueness and query indexes belong to the next step.
+- Observation provenance is stored as a nonblank provider, provider-scoped external identifier, and source URL. A unique constraint on `(provider, external_id)` prevents duplicate observations from the same provider while allowing different providers to use the same external ID.
+- The observation location GiST index supports bounding-box queries, while the `species_id` B-tree index supports species-observation lookups. No date index is introduced before a concrete date-filtering query exists.
 - Deleting a species referenced by observations is restricted so observation records cannot become detached from their normalized species identity.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 
@@ -78,7 +80,7 @@
 
 - The API currently exposes only the health endpoint; domain endpoints begin in later steps.
 - The frontend only reports API health: no species search, map, domain persistence, or provider integration exists yet.
-- Observation spatial and lookup indexes are not present yet; they are the focus of step 12.
+- Persistence integration test infrastructure is not present yet; it is the focus of step 13.
 - Application tests, CI, and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
@@ -167,7 +169,16 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - A transactionally rolled-back verification confirmed that `location_obscured` preserves all three semantic states: `true`, `false`, and `NULL`.
 - Down-migration dry run generated `DROP TABLE "observations"` and removal of the migration-history entry without modifying the database.
 - Step 11 Definition of Done is satisfied: the database can persist a valid observation point with its species relationship, sensitivity metadata, and source provenance.
+- `pnpm --filter api typecheck`: passed for the observation index migration.
+- `pnpm lint`: passed for `web` and `api` after adding the observation indexes.
+- Targeted Prettier check for the observation index migration: passed.
+- Migration dry run generated the provider/external-ID unique constraint, the `species_id` B-tree index, and the `location` GiST index.
+- `pnpm --filter api db:migrate`: applied `20260922163831000_add-observation-query-indexes` to the development Supabase database.
+- A second migration run reported no pending migrations.
+- Database inspection confirmed all three indexes. Forced query plans used them for provider/external-ID lookup, species filtering, and bounding-box filtering respectively.
+- Down-migration dry run generated removal of both explicit indexes and the unique constraint without modifying the database.
+- Step 12 Definition of Done is satisfied: every new index is migration-defined and connected to a real observation query pattern.
 
 ## Next implementation
 
-Discuss and approve **12 · Add spatial and lookup indexes** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **13 · Add persistence integration test foundation** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
