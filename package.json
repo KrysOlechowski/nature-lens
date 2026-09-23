@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint web api",
+    "test": "pnpm --filter api test",
     "test:integration": "pnpm --filter api test:integration",
     "typecheck": "pnpm --filter web --filter api typecheck"
   },

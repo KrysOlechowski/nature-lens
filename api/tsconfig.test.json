@@ -4,6 +4,10 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["test/**/*.ts", "vitest.integration.config.ts"],
+  "include": [
+    "test/**/*.ts",
+    "vitest.integration.config.ts",
+    "vitest.unit.config.ts"
+  ],
   "exclude": ["node_modules"]
 }

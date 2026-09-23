@@ -12,6 +12,12 @@ const environmentSchema = z.object({
       "DATABASE_URL must use the postgres:// or postgresql:// protocol",
     ),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(20).default(5),
+  EXTERNAL_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(60_000)
+    .default(10_000),
 });
 
 const parsedEnvironment = environmentSchema.safeParse(process.env);
