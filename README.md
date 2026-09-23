@@ -307,7 +307,8 @@ nature-lens/
 │
 ├── web/                    # Next.js frontend (App Router)
 ├── api/                    # NestJS backend
-│   └── migrations/         # Versioned PostgreSQL schema changes
+│   ├── migrations/         # Versioned PostgreSQL schema changes
+│   └── test/               # PostgreSQL/PostGIS integration tests
 │
 ├── README.md
 ├── ARCHITECTURE.md
@@ -380,6 +381,7 @@ Backend commands, also run from the repository root:
 ```bash
 pnpm --filter api typecheck
 pnpm --filter api build
+pnpm test:integration
 pnpm --filter api start
 ```
 
@@ -400,9 +402,11 @@ pnpm db:migrate:down
 
 Migrations load the server-only `DATABASE_URL` from `api/.env`. They run explicitly rather than as a side effect of API startup. The first migration enables PostGIS in the dedicated `extensions` schema.
 
+Database integration tests require a running Docker-compatible container runtime. Testcontainers starts an ephemeral PostgreSQL/PostGIS container, creates an isolated test database, and applies the repository migrations before the tests run. Each test uses one PostgreSQL client inside a transaction that is rolled back afterward, so the development Supabase database and local environment configuration are not used. The first run downloads the `postgis/postgis:17-3.5-alpine` image.
+
 The backend uses NestJS 12 with its default Express adapter and native ES modules. In `api/src/`, `main.ts` creates the application, sets the route prefix, and starts the HTTP server; `app.module.ts` defines the root module. Feature modules, controllers, and providers will be added as product functionality is implemented.
 
-No application test suite exists yet.
+The current integration suite covers the persistence foundation. Unit, HTTP, and end-to-end coverage will be added with the product behavior that requires them.
 
 ---
 

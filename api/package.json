@@ -10,7 +10,8 @@
     "db:migrate:create": "node-pg-migrate create --migrations-dir migrations --migration-file-language ts --migration-filename-format utc",
     "db:migrate:down": "node-pg-migrate down --envPath .env --migrations-dir migrations",
     "start": "node --enable-source-maps dist/main.js",
-    "typecheck": "tsc --noEmit && tsc --project tsconfig.migrations.json"
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.migrations.json && tsc --project tsconfig.test.json"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.3",
@@ -27,6 +28,8 @@
     "@types/node": "^22.20.4",
     "@types/pg": "^8.23.1",
     "node-pg-migrate": "^9.0.0",
-    "typescript": "^5.9.3"
+    "testcontainers": "^12.1.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.1"
   }
 }

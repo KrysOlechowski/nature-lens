@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, and PostGIS connected
+> **Status:** frontend, API, PostgreSQL, PostGIS, and persistence integration testing connected
 >
-> **Current phase:** Phase 2 · PostgreSQL and PostGIS
+> **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 12 · Add spatial and lookup indexes
+> **Last completed step:** 13 · Add persistence integration test foundation
 >
-> **Current step:** 13 · Add persistence integration test foundation
+> **Current step:** 14 · Add external HTTP client foundation
 >
-> **Next step:** 14 · Add external HTTP client foundation
+> **Next step:** 15 · Validate iNaturalist API responses
 
 ## What currently works
 
@@ -29,6 +29,8 @@
 - The `species` table stores application-owned species identities, scientific and display names, basic taxonomy, and timestamps independently of external providers.
 - The `observations` table relates normalized biodiversity observations to species and stores their observation time, WGS84 point location, positional accuracy, obscured-location status, provider identity, external identifier, and source URL.
 - Observation queries are supported by a GiST location index, a B-tree species lookup index, and provider-scoped external-ID uniqueness.
+- Persistence integration tests start an ephemeral PostgreSQL/PostGIS container, create an isolated database, and apply the repository migrations without using the development Supabase project.
+- Each database integration test receives one PostgreSQL client and runs inside a transaction that is rolled back afterward. The initial test persists and reads a species observation, including its WGS84 point.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
@@ -75,13 +77,18 @@
 - The observation location GiST index supports bounding-box queries, while the `species_id` B-tree index supports species-observation lookups. No date index is introduced before a concrete date-filtering query exists.
 - Deleting a species referenced by observations is restricted so observation records cannot become detached from their normalized species identity.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
+- Database integration tests use Testcontainers with the `postgis/postgis:17-3.5-alpine` image. The image is explicitly run as `linux/amd64`, matching its published architecture and allowing Docker Desktop emulation on Apple silicon.
+- The test container owns an isolated database for the suite. Repository migrations run against it before tests, while each test receives one `PoolClient` and uses transaction rollback for isolation.
+- Integration tests detect the Docker Desktop user socket when `DOCKER_HOST` is not already configured; explicit environment configuration continues to take precedence.
+- Install scripts pulled in through Testcontainers (`cpu-features`, `protobufjs`, and `ssh2`) remain explicitly disabled; the suite uses their packaged JavaScript and the local Docker socket without those scripts.
 
 ## Known limitations / blockers
 
 - The API currently exposes only the health endpoint; domain endpoints begin in later steps.
 - The frontend only reports API health: no species search, map, domain persistence, or provider integration exists yet.
-- Persistence integration test infrastructure is not present yet; it is the focus of step 13.
-- Application tests, CI, and deployment are not configured yet.
+- The persistence suite currently contains one schema-level integration test; unit, HTTP, and end-to-end tests are not configured yet.
+- Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
+- CI and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
 
@@ -98,6 +105,7 @@ pnpm format:check
 pnpm format
 pnpm typecheck
 pnpm build
+pnpm test:integration
 pnpm db:migrate
 pnpm db:migrate:create migration-name
 pnpm db:migrate:down
@@ -178,7 +186,13 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - Database inspection confirmed all three indexes. Forced query plans used them for provider/external-ID lookup, species filtering, and bounding-box filtering respectively.
 - Down-migration dry run generated removal of both explicit indexes and the unique constraint without modifying the database.
 - Step 12 Definition of Done is satisfied: every new index is migration-defined and connected to a real observation query pattern.
+- `pnpm --filter api typecheck`: passed for API source, migrations, integration tests, and the Vitest configuration.
+- `pnpm lint`: passed for `web` and `api` with the integration-test files included.
+- `pnpm format:check`: passed.
+- `pnpm peers check`: passed with no peer dependency issues after adding Vitest and Testcontainers.
+- `pnpm test:integration`: passed against an ephemeral `postgis/postgis:17-3.5-alpine` container after applying all repository migrations; the test persisted and read a species observation through one transaction-bound `PoolClient`.
+- Step 13 Definition of Done is satisfied: a real PostgreSQL/PostGIS integration test persists and reads a sample record with isolated database state.
 
 ## Next implementation
 
-Discuss and approve **13 · Add persistence integration test foundation** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **14 · Add external HTTP client foundation** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
