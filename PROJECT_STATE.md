@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 14 · Add external HTTP client foundation
+> **Last completed step:** 15 · Validate iNaturalist API responses
 >
-> **Current step:** 15 · Validate iNaturalist API responses
+> **Current step:** 16 · Add iNaturalist species search adapter
 >
-> **Next step:** 16 · Add iNaturalist species search adapter
+> **Next step:** 17 · Normalize provider species into domain model
 
 ## What currently works
 
@@ -34,6 +34,8 @@
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
 - Provider modules can explicitly import a shared NestJS external HTTP module and inject one controlled JSON client with a configurable timeout, provider-aware logging, and categorized transport errors.
 - The external HTTP client returns untrusted JSON as `unknown`, omits query parameters from logs, and has unit coverage for success, HTTP failures, timeouts, network failures, and malformed JSON.
+- iNaturalist taxa search responses are runtime-validated at the provider boundary. The minimal contract requires a `results` array and each result's positive integer ID, scientific name, and rank, while accepting an omitted preferred common name.
+- Invalid iNaturalist taxa contracts produce a controlled provider-specific integration error instead of exposing Zod errors or allowing untrusted data into application logic.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
 - Root commands lint, typecheck, build, and format both applications consistently.
@@ -86,11 +88,13 @@
 - External HTTP uses the native Node.js `fetch` implementation instead of adding Axios. `ExternalHttpModule` is deliberately not global: each provider module must declare its transport dependency explicitly.
 - External HTTP requests currently support only JSON `GET`, matching the first iNaturalist use case. They use a shared timeout that defaults to 10 seconds and can be configured with `EXTERNAL_HTTP_TIMEOUT_MS`; retry policy remains a later concern.
 - HTTP status, timeout, network, and malformed-JSON failures are categorized at the transport boundary. Provider response contract validation remains separate and consumes `unknown` data.
+- The iNaturalist schema models only fields required by the upcoming species search adapter. Unused provider and pagination fields are discarded; they can be added when an application feature depends on them.
+- iNaturalist omits `preferred_common_name` when the requested locale has no common name, so the field is optional but does not accept `null`. Required application fields fail validation when missing rather than producing partial species results.
 
 ## Known limitations / blockers
 
 - The API currently exposes only the health endpoint; domain endpoints begin in later steps.
-- The frontend only reports API health: no species search, map, domain persistence, or provider integration exists yet.
+- The frontend only reports API health: no species search, map, domain persistence, or live provider request exists yet.
 - The persistence suite currently contains one schema-level integration test, and the external HTTP foundation has focused unit tests; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -205,7 +209,11 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm format:check`: passed.
 - `git diff --check`: passed.
 - Step 14 Definition of Done is satisfied: provider integrations can explicitly import and use one controlled HTTP client foundation with timeout, provider-aware logging, and categorized failures.
+- `pnpm --filter api test -- inaturalist-response.spec.ts`: passed all 14 API unit tests, including 8 iNaturalist response-validation cases.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests, and both Vitest configurations.
+- Targeted ESLint and Prettier checks for the iNaturalist schema, integration error, and unit tests: passed.
+- Step 15 Definition of Done is satisfied: invalid iNaturalist taxa contracts produce a controlled integration error, while the valid minimal response and omitted common names are accepted.
 
 ## Next implementation
 
-Discuss and approve **15 · Validate iNaturalist API responses** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **16 · Add iNaturalist species search adapter** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
