@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, and controlled external HTTP foundation connected
+> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and the first iNaturalist adapter connected
 >
 > **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 15 · Validate iNaturalist API responses
+> **Last completed step:** 16 · Add iNaturalist species search adapter
 >
-> **Current step:** 16 · Add iNaturalist species search adapter
+> **Current step:** 17 · Normalize provider species into domain model
 >
-> **Next step:** 17 · Normalize provider species into domain model
+> **Next step:** 18 · Expose species search endpoint
 
 ## What currently works
 
@@ -36,6 +36,8 @@
 - The external HTTP client returns untrusted JSON as `unknown`, omits query parameters from logs, and has unit coverage for success, HTTP failures, timeouts, network failures, and malformed JSON.
 - iNaturalist taxa search responses are runtime-validated at the provider boundary. The minimal contract requires a `results` array and each result's positive integer ID, scientific name, and rank, while accepting an omitted preferred common name.
 - Invalid iNaturalist taxa contracts produce a controlled provider-specific integration error instead of exposing Zod errors or allowing untrusted data into application logic.
+- `INaturalistAdapter` searches the public iNaturalist taxa endpoint for active species with an English locale and a fixed limit of ten results, using the shared controlled HTTP client.
+- Validated iNaturalist taxa are mapped to a small camel-cased integration type containing only the external ID, scientific name, optional preferred common name, and rank; raw provider responses do not leave the adapter.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
 - Root commands lint, typecheck, build, and format both applications consistently.
@@ -90,6 +92,10 @@
 - HTTP status, timeout, network, and malformed-JSON failures are categorized at the transport boundary. Provider response contract validation remains separate and consumes `unknown` data.
 - The iNaturalist schema models only fields required by the upcoming species search adapter. Unused provider and pagination fields are discarded; they can be added when an application feature depends on them.
 - iNaturalist omits `preferred_common_name` when the requested locale has no common name, so the field is optional but does not accept `null`. Required application fields fail validation when missing rather than producing partial species results.
+- The iNaturalist integration lives in an explicit NestJS module that imports the non-global external HTTP module and exports only the adapter for future application services.
+- The first species search deliberately requests only active taxa at the `species` rank, limits each request to ten results, and requests English preferred common names to match the current UI language.
+- Blank species queries fail before any provider request. Nonblank queries are trimmed and encoded with `URLSearchParams` rather than interpolated into a URL.
+- The adapter result is an integration-boundary type, not the Nature Lens domain species model. Domain normalization remains the responsibility of step 17.
 
 ## Known limitations / blockers
 
@@ -213,7 +219,13 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests, and both Vitest configurations.
 - Targeted ESLint and Prettier checks for the iNaturalist schema, integration error, and unit tests: passed.
 - Step 15 Definition of Done is satisfied: invalid iNaturalist taxa contracts produce a controlled integration error, while the valid minimal response and omitted common names are accepted.
+- `pnpm --filter api test -- inaturalist-adapter.spec.ts`: passed all 18 API unit tests, including adapter request construction, result mapping, blank-query rejection, and invalid-contract handling.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests after adding the adapter.
+- Targeted ESLint and Prettier checks for the iNaturalist adapter, module, root-module wiring, and adapter tests: passed.
+- `pnpm --filter api build`: passed with the iNaturalist module registered in the NestJS application graph.
+- `git diff --check`: passed.
+- Step 16 Definition of Done is satisfied: the adapter searches iNaturalist and returns a small internal integration type rather than the raw provider response.
 
 ## Next implementation
 
-Discuss and approve **16 · Add iNaturalist species search adapter** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **17 · Normalize provider species into domain model** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
