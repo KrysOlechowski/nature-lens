@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and normalized iNaturalist species search
+> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and an iNaturalist-backed species search endpoint
 >
 > **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 17 · Normalize provider species into domain model
+> **Last completed step:** 18 · Expose species search endpoint
 >
-> **Current step:** 18 · Expose species search endpoint
+> **Current step:** 19 · Add iNaturalist observations adapter
 >
-> **Next step:** 19 · Add iNaturalist observations adapter
+> **Next step:** 20 · Normalize observations and protect sensitive coordinates
 
 ## What currently works
 
@@ -40,6 +40,7 @@
 - Validated iNaturalist taxa are mapped to a small camel-cased integration type containing only the external ID, scientific name, optional preferred common name, and rank; raw provider responses do not leave the adapter.
 - `SpeciesService` maps iNaturalist integration results into provider-independent Nature Lens search models with normalized names, taxonomy, and source provenance.
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
+- `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
 - Root commands lint, typecheck, build, and format both applications consistently.
@@ -101,11 +102,12 @@
 - Species normalization keeps an optional `commonName` separate from the resolved `displayName`; falling back to the scientific name therefore does not invent a common name.
 - Provider external IDs are normalized to strings and retained with the provider name so provenance survives beyond the integration boundary.
 - The iNaturalist-specific integration type is imported only by its mapper. `SpeciesService` returns Nature Lens models and does not depend on provider response contracts.
+- Species search HTTP validation reuses Zod rather than adding class-validator and class-transformer for one query field. Missing, blank, and repeated `q` parameters return `400 Bad Request` before the provider is called.
+- The species controller remains a transport boundary: it validates HTTP input, delegates to `SpeciesService`, and maps domain results to explicit response DTOs.
 
 ## Known limitations / blockers
 
-- The API currently exposes only the health endpoint; domain endpoints begin in later steps.
-- The frontend only reports API health: no species search, map, domain persistence, or live provider request exists yet.
+- The frontend only reports API health: it does not use the available species search endpoint yet, and no observation map, domain persistence flow, or observations request exists yet.
 - The persistence suite currently contains one schema-level integration test, and the external HTTP foundation has focused unit tests; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -237,7 +239,14 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm --filter api build`: passed with `SpeciesModule` owning the iNaturalist integration dependency in the NestJS application graph.
 - `git diff --check`: passed.
 - Step 17 Definition of Done is satisfied: `SpeciesService` returns Nature Lens species models without importing iNaturalist response or integration-result types.
+- `pnpm --filter api test`: passed all 26 API unit tests, including successful species endpoint delegation and invalid-query rejection.
+- `pnpm --filter api typecheck`: passed for API source, migrations, and tests after adding the species search endpoint.
+- `pnpm --filter api build`: passed with `SpeciesController` registered in `SpeciesModule`.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- `git diff --check`: passed.
+- Step 18 Definition of Done is satisfied: `GET /api/species/search?q=...` accepts a query such as `jeleń` and returns normalized Nature Lens species DTOs.
 
 ## Next implementation
 
-Discuss and approve **18 · Expose species search endpoint** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **19 · Add iNaturalist observations adapter** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
