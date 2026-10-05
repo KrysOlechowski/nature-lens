@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ExternalHttpClient } from "../src/external-http/external-http-client.service.js";
 import type { ExternalHttpFetch } from "../src/external-http/external-http.tokens.js";
 import { INaturalistAdapter } from "../src/inaturalist/inaturalist.adapter.js";
-import { INaturalistIntegrationError } from "../src/inaturalist/inaturalist-integration.error.js";
+import { ProviderError } from "../src/provider-errors/provider.error.js";
 
 function createAdapter() {
   const request = vi.fn<ExternalHttpFetch>();
@@ -92,10 +92,9 @@ describe("INaturalistAdapter", () => {
     });
 
     await expect(adapter.searchSpecies("bison")).rejects.toMatchObject<
-      Partial<INaturalistIntegrationError>
+      Partial<ProviderError>
     >({
       kind: "invalid-response",
-      message: "iNaturalist returned an invalid taxa response",
       provider: "iNaturalist",
     });
   });
@@ -246,9 +245,8 @@ describe("INaturalistAdapter", () => {
 
     await expect(
       adapter.getObservations(1696537, { page: 1, perPage: 1 }),
-    ).rejects.toMatchObject<Partial<INaturalistIntegrationError>>({
+    ).rejects.toMatchObject<Partial<ProviderError>>({
       kind: "invalid-response",
-      message: "iNaturalist returned an invalid observations response",
       provider: "iNaturalist",
     });
   });

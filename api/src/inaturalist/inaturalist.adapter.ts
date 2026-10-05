@@ -4,6 +4,7 @@ import {
   parseINaturalistObservationsResponse,
   parseINaturalistTaxaResponse,
 } from "./inaturalist-response.schema.js";
+import { throwINaturalistProviderError } from "./inaturalist-error.mapper.js";
 
 const INATURALIST_PROVIDER = "iNaturalist";
 const INATURALIST_TAXA_URL = "https://api.inaturalist.org/v1/taxa";
@@ -68,20 +69,24 @@ export class INaturalistAdapter {
     url.searchParams.set("per_page", String(SPECIES_SEARCH_LIMIT));
     url.searchParams.set("locale", "en");
 
-    const response = await this.externalHttpClient.getJson({
-      provider: INATURALIST_PROVIDER,
-      url,
-    });
-    const taxa = parseINaturalistTaxaResponse(response);
+    try {
+      const response = await this.externalHttpClient.getJson({
+        provider: INATURALIST_PROVIDER,
+        url,
+      });
+      const taxa = parseINaturalistTaxaResponse(response);
 
-    return taxa.results.map((taxon) => ({
-      externalId: taxon.id,
-      scientificName: taxon.name,
-      ...(taxon.preferred_common_name
-        ? { preferredCommonName: taxon.preferred_common_name }
-        : {}),
-      rank: taxon.rank,
-    }));
+      return taxa.results.map((taxon) => ({
+        externalId: taxon.id,
+        scientificName: taxon.name,
+        ...(taxon.preferred_common_name
+          ? { preferredCommonName: taxon.preferred_common_name }
+          : {}),
+        rank: taxon.rank,
+      }));
+    } catch (error) {
+      throwINaturalistProviderError(error);
+    }
   }
 
   async getObservations(
@@ -104,34 +109,39 @@ export class INaturalistAdapter {
     url.searchParams.set("page", String(pagination.page));
     url.searchParams.set("per_page", String(pagination.perPage));
 
-    const response = await this.externalHttpClient.getJson({
-      provider: INATURALIST_PROVIDER,
-      url,
-    });
-    const observations = parseINaturalistObservationsResponse(response);
+    try {
+      const response = await this.externalHttpClient.getJson({
+        provider: INATURALIST_PROVIDER,
+        url,
+      });
+      const observations = parseINaturalistObservationsResponse(response);
 
-    return {
-      totalResults: observations.total_results,
-      page: observations.page,
-      perPage: observations.per_page,
-      results: observations.results.map((observation) => ({
-        externalId: observation.id,
-        observedOn: observation.observed_on,
-        timeObservedAt: observation.time_observed_at,
-        coordinates: observation.geojson
-          ? {
-              latitude: observation.geojson.coordinates[1],
-              longitude: observation.geojson.coordinates[0],
-            }
-          : null,
-        positionalAccuracyMeters: observation.positional_accuracy,
-        publicPositionalAccuracyMeters: observation.public_positional_accuracy,
-        geoprivacy: observation.geoprivacy,
-        taxonGeoprivacy: observation.taxon_geoprivacy,
-        obscured: observation.obscured,
-        sourceUrl: observation.uri,
-      })),
-    };
+      return {
+        totalResults: observations.total_results,
+        page: observations.page,
+        perPage: observations.per_page,
+        results: observations.results.map((observation) => ({
+          externalId: observation.id,
+          observedOn: observation.observed_on,
+          timeObservedAt: observation.time_observed_at,
+          coordinates: observation.geojson
+            ? {
+                latitude: observation.geojson.coordinates[1],
+                longitude: observation.geojson.coordinates[0],
+              }
+            : null,
+          positionalAccuracyMeters: observation.positional_accuracy,
+          publicPositionalAccuracyMeters:
+            observation.public_positional_accuracy,
+          geoprivacy: observation.geoprivacy,
+          taxonGeoprivacy: observation.taxon_geoprivacy,
+          obscured: observation.obscured,
+          sourceUrl: observation.uri,
+        })),
+      };
+    } catch (error) {
+      throwINaturalistProviderError(error);
+    }
   }
 }
 

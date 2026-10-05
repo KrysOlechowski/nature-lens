@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and safely normalized iNaturalist-backed species search and observations
+> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and safely normalized iNaturalist-backed species search, observations, and provider failures
 >
 > **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 21 · Expose live species observations endpoint
+> **Last completed step:** 22 · Add provider error translation
 >
-> **Current step:** 22 · Add provider error translation
+> **Current step:** 23 · Persist normalized species
 >
-> **Next step:** 23 · Persist normalized species
+> **Next step:** 24 · Persist normalized observations
 
 ## What currently works
 
@@ -35,7 +35,7 @@
 - Provider modules can explicitly import a shared NestJS external HTTP module and inject one controlled JSON client with a configurable timeout, provider-aware logging, and categorized transport errors.
 - The external HTTP client returns untrusted JSON as `unknown`, omits query parameters from logs, and has unit coverage for success, HTTP failures, timeouts, network failures, and malformed JSON.
 - iNaturalist taxa search responses are runtime-validated at the provider boundary. The minimal contract requires a `results` array and each result's positive integer ID, scientific name, and rank, while accepting an omitted preferred common name.
-- Invalid iNaturalist taxa contracts produce a controlled provider-specific integration error instead of exposing Zod errors or allowing untrusted data into application logic.
+- Invalid iNaturalist response contracts produce controlled integration errors at the validation boundary instead of exposing Zod errors or allowing untrusted data into application logic.
 - `INaturalistAdapter` searches the public iNaturalist taxa endpoint for active species with an English locale and a fixed limit of ten results, using the shared controlled HTTP client.
 - Validated iNaturalist taxa are mapped to a small camel-cased integration type containing only the external ID, scientific name, optional preferred common name, and rank; raw provider responses do not leave the adapter.
 - `INaturalistAdapter` retrieves explicit pages of observations for a selected taxon from the public iNaturalist observations endpoint, always restricted to Poland by place ID `7800`.
@@ -48,6 +48,7 @@
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
 - `GET /api/species/:id/observations?page=...&perPage=...` validates the temporary external taxon ID and bounded pagination before returning normalized live observation DTOs with dates, privacy-aware locations, pagination, and source provenance.
+- iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
 - Root commands lint, typecheck, build, and format both applications consistently.
@@ -100,6 +101,9 @@
 - External HTTP uses the native Node.js `fetch` implementation instead of adding Axios. `ExternalHttpModule` is deliberately not global: each provider module must declare its transport dependency explicitly.
 - External HTTP requests currently support only JSON `GET`, matching the first iNaturalist use case. They use a shared timeout that defaults to 10 seconds and can be configured with `EXTERNAL_HTTP_TIMEOUT_MS`; retry policy remains a later concern.
 - HTTP status, timeout, network, and malformed-JSON failures are categorized at the transport boundary. Provider response contract validation remains separate and consumes `unknown` data.
+- Provider adapters translate their controlled transport and integration failures into `ProviderError`; application services and the global HTTP filter do not depend on fetch, Zod, or provider-specific error classes.
+- The provider error taxonomy distinguishes timeout, rate limiting, unavailability, invalid responses, and unexpected upstream request rejection. Upstream `429` becomes a stable `503`, other upstream `4xx` become `502`, network and upstream `5xx` failures become `503`, and timeouts become `504`.
+- `ProviderExceptionFilter` catches only `ProviderError`. Unknown programming or application errors remain under NestJS's default exception handling instead of being misreported as provider failures.
 - The iNaturalist schemas model only fields required by the current species-search and observation adapters. Unused provider fields are discarded; they can be added when an application feature depends on them.
 - iNaturalist omits `preferred_common_name` when the requested locale has no common name, so the field is optional but does not accept `null`. Required application fields fail validation when missing rather than producing partial species results.
 - The iNaturalist integration lives in an explicit NestJS module that imports the non-global external HTTP module and exports only the adapter for future application services.
@@ -281,7 +285,14 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - Targeted ESLint and Prettier checks for the species controller, observation response DTOs, and controller tests: passed.
 - `git diff --check`: passed.
 - Step 21 Definition of Done is satisfied: the API returns normalized live observation DTOs containing privacy-aware location, date, and source provenance.
+- `pnpm --filter api test`: passed all 71 API unit tests, including provider-error normalization, stable HTTP mappings, technical-detail protection, and uncontrolled-error passthrough.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding provider error translation.
+- `pnpm --filter api build`: passed.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- `git diff --check`: passed.
+- Step 22 Definition of Done is satisfied: common iNaturalist failures produce predictable application-level HTTP responses and useful provider-aware logs without leaking transport or validation details.
 
 ## Next implementation
 
-Discuss and approve **22 · Add provider error translation** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **23 · Persist normalized species** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
