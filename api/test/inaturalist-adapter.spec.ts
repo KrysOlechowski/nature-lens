@@ -99,4 +99,157 @@ describe("INaturalistAdapter", () => {
       provider: "iNaturalist",
     });
   });
+
+  it("requests a paginated page of observations for a taxon in Poland", async () => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue({
+      page: 3,
+      per_page: 50,
+      results: [],
+      total_results: 739,
+    });
+
+    await expect(
+      adapter.getObservations(1696537, { page: 3, perPage: 50 }),
+    ).resolves.toEqual({
+      page: 3,
+      perPage: 50,
+      results: [],
+      totalResults: 739,
+    });
+
+    expect(getJson).toHaveBeenCalledOnce();
+    const request = getJson.mock.calls[0]?.[0];
+
+    expect(request?.provider).toBe("iNaturalist");
+    expect(request?.url.origin).toBe("https://api.inaturalist.org");
+    expect(request?.url.pathname).toBe("/v1/observations");
+    expect(Object.fromEntries(request?.url.searchParams ?? [])).toEqual({
+      page: "3",
+      per_page: "50",
+      place_id: "7800",
+      taxon_id: "1696537",
+    });
+  });
+
+  it("maps validated observations to small integration results", async () => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue({
+      page: 1,
+      per_page: 2,
+      results: [
+        {
+          geojson: {
+            coordinates: [23.2064155596, 53.4029839302],
+            type: "Point",
+          },
+          geoprivacy: null,
+          id: 405566287,
+          obscured: true,
+          observed_on: "2026-10-03",
+          positional_accuracy: 94,
+          public_positional_accuracy: 25_876,
+          taxon_geoprivacy: "obscured",
+          time_observed_at: "2026-10-03T16:45:26+02:00",
+          uri: "https://www.inaturalist.org/observations/405566287",
+        },
+        {
+          geojson: null,
+          geoprivacy: "private",
+          id: 405566288,
+          obscured: true,
+          observed_on: "2026-10-04",
+          positional_accuracy: null,
+          public_positional_accuracy: null,
+          taxon_geoprivacy: null,
+          time_observed_at: null,
+          uri: "https://www.inaturalist.org/observations/405566288",
+        },
+      ],
+      total_results: 2,
+    });
+
+    await expect(
+      adapter.getObservations(1696537, { page: 1, perPage: 2 }),
+    ).resolves.toEqual({
+      page: 1,
+      perPage: 2,
+      results: [
+        {
+          coordinates: {
+            latitude: 53.4029839302,
+            longitude: 23.2064155596,
+          },
+          externalId: 405566287,
+          geoprivacy: null,
+          obscured: true,
+          observedOn: "2026-10-03",
+          positionalAccuracyMeters: 94,
+          publicPositionalAccuracyMeters: 25_876,
+          sourceUrl: "https://www.inaturalist.org/observations/405566287",
+          taxonGeoprivacy: "obscured",
+          timeObservedAt: "2026-10-03T16:45:26+02:00",
+        },
+        {
+          coordinates: null,
+          externalId: 405566288,
+          geoprivacy: "private",
+          obscured: true,
+          observedOn: "2026-10-04",
+          positionalAccuracyMeters: null,
+          publicPositionalAccuracyMeters: null,
+          sourceUrl: "https://www.inaturalist.org/observations/405566288",
+          taxonGeoprivacy: null,
+          timeObservedAt: null,
+        },
+      ],
+      totalResults: 2,
+    });
+  });
+
+  it.each([
+    ["taxon ID", 0, { page: 1, perPage: 200 }],
+    ["observation page", 1696537, { page: 0, perPage: 200 }],
+    ["observations per page", 1696537, { page: 1, perPage: 0 }],
+    ["observations per page", 1696537, { page: 1, perPage: 1.5 }],
+  ])(
+    "rejects an invalid %s without calling iNaturalist",
+    async (_field, taxonId, pagination) => {
+      const { adapter, getJson } = createAdapter();
+
+      await expect(
+        adapter.getObservations(taxonId, pagination),
+      ).rejects.toBeInstanceOf(TypeError);
+      expect(getJson).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a page size above the iNaturalist limit", async () => {
+    const { adapter, getJson } = createAdapter();
+
+    await expect(
+      adapter.getObservations(1696537, { page: 1, perPage: 201 }),
+    ).rejects.toThrowError(
+      new TypeError("iNaturalist observations per page cannot exceed 200"),
+    );
+    expect(getJson).not.toHaveBeenCalled();
+  });
+
+  it("reports invalid observation data as a controlled integration error", async () => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue({
+      page: 1,
+      per_page: 1,
+      results: [{ id: 405566287 }],
+      total_results: 1,
+    });
+
+    await expect(
+      adapter.getObservations(1696537, { page: 1, perPage: 1 }),
+    ).rejects.toMatchObject<Partial<INaturalistIntegrationError>>({
+      kind: "invalid-response",
+      message: "iNaturalist returned an invalid observations response",
+      provider: "iNaturalist",
+    });
+  });
 });

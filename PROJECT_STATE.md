@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and an iNaturalist-backed species search endpoint
+> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and iNaturalist-backed species search and observation adapters
 >
 > **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 18 · Expose species search endpoint
+> **Last completed step:** 19 · Add iNaturalist observations adapter
 >
-> **Current step:** 19 · Add iNaturalist observations adapter
+> **Current step:** 20 · Normalize observations and protect sensitive coordinates
 >
-> **Next step:** 20 · Normalize observations and protect sensitive coordinates
+> **Next step:** 21 · Expose live species observations endpoint
 
 ## What currently works
 
@@ -38,6 +38,9 @@
 - Invalid iNaturalist taxa contracts produce a controlled provider-specific integration error instead of exposing Zod errors or allowing untrusted data into application logic.
 - `INaturalistAdapter` searches the public iNaturalist taxa endpoint for active species with an English locale and a fixed limit of ten results, using the shared controlled HTTP client.
 - Validated iNaturalist taxa are mapped to a small camel-cased integration type containing only the external ID, scientific name, optional preferred common name, and rank; raw provider responses do not leave the adapter.
+- `INaturalistAdapter` retrieves explicit pages of observations for a selected taxon from the public iNaturalist observations endpoint, always restricted to Poland by place ID `7800`.
+- iNaturalist observation responses are runtime-validated for pagination, observation identity and dates, public point geometry, accuracy, location privacy metadata, and source URL before being mapped to a small integration type.
+- The observation integration type keeps provider and public positional accuracy separate and preserves geoprivacy, taxon geoprivacy, and obscurity metadata for the following normalization step.
 - `SpeciesService` maps iNaturalist integration results into provider-independent Nature Lens search models with normalized names, taxonomy, and source provenance.
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
@@ -93,10 +96,13 @@
 - External HTTP uses the native Node.js `fetch` implementation instead of adding Axios. `ExternalHttpModule` is deliberately not global: each provider module must declare its transport dependency explicitly.
 - External HTTP requests currently support only JSON `GET`, matching the first iNaturalist use case. They use a shared timeout that defaults to 10 seconds and can be configured with `EXTERNAL_HTTP_TIMEOUT_MS`; retry policy remains a later concern.
 - HTTP status, timeout, network, and malformed-JSON failures are categorized at the transport boundary. Provider response contract validation remains separate and consumes `unknown` data.
-- The iNaturalist schema models only fields required by the upcoming species search adapter. Unused provider and pagination fields are discarded; they can be added when an application feature depends on them.
+- The iNaturalist schemas model only fields required by the current species-search and observation adapters. Unused provider fields are discarded; they can be added when an application feature depends on them.
 - iNaturalist omits `preferred_common_name` when the requested locale has no common name, so the field is optional but does not accept `null`. Required application fields fail validation when missing rather than producing partial species results.
 - The iNaturalist integration lives in an explicit NestJS module that imports the non-global external HTTP module and exports only the adapter for future application services.
 - The first species search deliberately requests only active taxa at the `species` rank, limits each request to ten results, and requests English preferred common names to match the current UI language.
+- Observation retrieval uses caller-supplied positive page and page-size values, rejects page sizes above iNaturalist's limit of 200, and returns the provider's pagination metadata rather than automatically traversing an unbounded result set.
+- Poland is represented at the iNaturalist boundary by provider place ID `7800`; application code outside the adapter does not need to know that provider-specific filter.
+- Observation coordinates remain provider integration data in this step. Both measurement and public positional accuracy plus all available privacy signals are retained so the next normalization step can apply the safety policy explicitly.
 - Blank species queries fail before any provider request. Nonblank queries are trimmed and encoded with `URLSearchParams` rather than interpolated into a URL.
 - `SpeciesSearchResult` represents an unpersisted Nature Lens search result rather than duplicating the persisted species identity, which will receive an internal ID only after persistence is introduced.
 - Species normalization keeps an optional `commonName` separate from the resolved `displayName`; falling back to the scientific name therefore does not invent a common name.
@@ -107,7 +113,7 @@
 
 ## Known limitations / blockers
 
-- The frontend only reports API health: it does not use the available species search endpoint yet, and no observation map, domain persistence flow, or observations request exists yet.
+- The frontend only reports API health: it does not use the available species search endpoint yet, and no observation map, observation normalization, domain persistence flow, or application observation endpoint exists yet.
 - The persistence suite currently contains one schema-level integration test, and the external HTTP foundation has focused unit tests; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -246,7 +252,15 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm format:check`: passed.
 - `git diff --check`: passed.
 - Step 18 Definition of Done is satisfied: `GET /api/species/search?q=...` accepts a query such as `jeleń` and returns normalized Nature Lens species DTOs.
+- `pnpm --filter api test`: passed all 39 API unit tests, including observation contract validation, Poland/taxon filtering, pagination, integration mapping, input rejection, and controlled invalid-response handling.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests after adding observation retrieval.
+- `pnpm --filter api build`: passed.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- `git diff --check`: passed.
+- A runtime request through the built `INaturalistAdapter` returned two real `Bos bonasus` observations from Poland with pagination metadata, public coordinates, accuracy values, privacy metadata, and source URLs.
+- Step 19 Definition of Done is satisfied: the adapter returns runtime-validated, paginated real observations for a selected species restricted to Poland.
 
 ## Next implementation
 
-Discuss and approve **19 · Add iNaturalist observations adapter** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **20 · Normalize observations and protect sensitive coordinates** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
