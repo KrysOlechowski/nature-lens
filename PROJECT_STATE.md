@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and iNaturalist-backed species search and observation adapters
+> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and safely normalized iNaturalist-backed species search and observations
 >
 > **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 19 · Add iNaturalist observations adapter
+> **Last completed step:** 20 · Normalize observations and protect sensitive coordinates
 >
-> **Current step:** 20 · Normalize observations and protect sensitive coordinates
+> **Current step:** 21 · Expose live species observations endpoint
 >
-> **Next step:** 21 · Expose live species observations endpoint
+> **Next step:** 22 · Add provider error translation
 
 ## What currently works
 
@@ -40,7 +40,10 @@
 - Validated iNaturalist taxa are mapped to a small camel-cased integration type containing only the external ID, scientific name, optional preferred common name, and rank; raw provider responses do not leave the adapter.
 - `INaturalistAdapter` retrieves explicit pages of observations for a selected taxon from the public iNaturalist observations endpoint, always restricted to Poland by place ID `7800`.
 - iNaturalist observation responses are runtime-validated for pagination, observation identity and dates, public point geometry, accuracy, location privacy metadata, and source URL before being mapped to a small integration type.
-- The observation integration type keeps provider and public positional accuracy separate and preserves geoprivacy, taxon geoprivacy, and obscurity metadata for the following normalization step.
+- The observation integration type keeps provider and public positional accuracy separate and preserves geoprivacy, taxon geoprivacy, and obscurity metadata at the provider boundary.
+- `SpeciesService` maps iNaturalist observation pages into provider-independent Nature Lens observation models with preserved pagination, date precision, public location metadata, privacy status, and source provenance.
+- Observation normalization distinguishes open, obscured, and private locations; a missing point remains missing data and does not itself imply obscurity.
+- Normalized locations explicitly describe their precision as approximate, deliberately limited, or unknown, and restricted locations never fall back to a more precise non-public accuracy value.
 - `SpeciesService` maps iNaturalist integration results into provider-independent Nature Lens search models with normalized names, taxonomy, and source provenance.
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
@@ -102,7 +105,10 @@
 - The first species search deliberately requests only active taxa at the `species` rank, limits each request to ten results, and requests English preferred common names to match the current UI language.
 - Observation retrieval uses caller-supplied positive page and page-size values, rejects page sizes above iNaturalist's limit of 200, and returns the provider's pagination metadata rather than automatically traversing an unbounded result set.
 - Poland is represented at the iNaturalist boundary by provider place ID `7800`; application code outside the adapter does not need to know that provider-specific filter.
-- Observation coordinates remain provider integration data in this step. Both measurement and public positional accuracy plus all available privacy signals are retained so the next normalization step can apply the safety policy explicitly.
+- The iNaturalist boundary retains both measurement and public positional accuracy plus all available privacy signals so the mapper can apply the safety policy explicitly.
+- Observation normalization uses only the public positional accuracy for obscured or private locations. If it is absent, the normalized accuracy remains unknown rather than falling back to the provider's potentially more precise value.
+- Location availability, privacy, and precision are separate concepts. Missing coordinates do not determine privacy; positive accuracy marks an open point as approximate, while provider privacy restrictions mark a public point as deliberately limited.
+- Date-only observations retain their date without receiving an invented timestamp, preserving the provider's temporal precision.
 - Blank species queries fail before any provider request. Nonblank queries are trimmed and encoded with `URLSearchParams` rather than interpolated into a URL.
 - `SpeciesSearchResult` represents an unpersisted Nature Lens search result rather than duplicating the persisted species identity, which will receive an internal ID only after persistence is introduced.
 - Species normalization keeps an optional `commonName` separate from the resolved `displayName`; falling back to the scientific name therefore does not invent a common name.
@@ -113,7 +119,7 @@
 
 ## Known limitations / blockers
 
-- The frontend only reports API health: it does not use the available species search endpoint yet, and no observation map, observation normalization, domain persistence flow, or application observation endpoint exists yet.
+- The frontend only reports API health: it does not use the available species search endpoint yet, and no observation map, domain persistence flow, or application observation endpoint exists yet.
 - The persistence suite currently contains one schema-level integration test, and the external HTTP foundation has focused unit tests; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -260,7 +266,13 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `git diff --check`: passed.
 - A runtime request through the built `INaturalistAdapter` returned two real `Bos bonasus` observations from Poland with pagination metadata, public coordinates, accuracy values, privacy metadata, and source URLs.
 - Step 19 Definition of Done is satisfied: the adapter returns runtime-validated, paginated real observations for a selected species restricted to Poland.
+- `pnpm --filter api test`: passed all 46 API unit tests, including observation privacy, public-accuracy, missing-coordinate, temporal-precision, mapper, and service normalization cases.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding observation normalization.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- `git diff --check`: passed.
+- Step 20 Definition of Done is satisfied: normalized observations preserve limited precision and provider restrictions without inferring obscurity from missing coordinates or exposing more precise non-public accuracy.
 
 ## Next implementation
 
-Discuss and approve **20 · Normalize observations and protect sensitive coordinates** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **21 · Expose live species observations endpoint** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
