@@ -922,7 +922,35 @@ Do not configure production yet.
 
 ---
 
-## 39 · Preserve source provenance across providers
+## 39 · Resolve species identity across providers
+
+**Goal:** associate taxa from different providers, such as iNaturalist and GBIF, with one internal Nature Lens `species_id` without relying only on a literal scientific-name match.
+
+**Implementation:**
+
+- explicit species/taxon identity-resolution strategy,
+- normalize scientific names for comparison without using a case-insensitive name alone as the deciding criterion,
+- use available signals such as scientific name, taxon rank, accepted names and synonyms, and lineage/taxonomy when providers supply them,
+- add another `(provider, external_id)` mapping to an existing species when the match is sufficiently confident,
+- do not merge automatically when the match is uncertain,
+- never automatically reassign an existing provider mapping between different species,
+- preserve provenance and enough decision context for later auditing.
+
+**Learning:**
+
+- entity resolution,
+- canonical identity,
+- taxonomy matching,
+- false positives vs false negatives,
+- the difference between deduplication and identity resolution.
+
+**Definition of Done:** clear equivalents of the same taxon from iNaturalist and GBIF can reference one `species_id`, while ambiguous cases are not merged automatically.
+
+**Commit:** `feat(api): resolve species identity across providers`
+
+---
+
+## 40 · Preserve source provenance across providers
 
 **Goal:** ensure users and the system always know where an observation came from.
 
@@ -945,7 +973,7 @@ Do not configure production yet.
 
 ---
 
-## 40 · Add conservative cross-provider deduplication
+## 41 · Add conservative cross-provider deduplication
 
 **Goal:** reduce obvious duplicates without pretending the same real-world record can always be perfectly identified across datasets.
 
@@ -966,7 +994,7 @@ Do not configure production yet.
 
 ---
 
-## 41 · Add observation seasonality aggregation
+## 42 · Add observation seasonality aggregation
 
 **Goal:** answer "when was this species observed?"
 
@@ -992,7 +1020,7 @@ Do not configure production yet.
 
 **Outcome:** the second primary product flow works: **place → observations + weather + protected areas**.
 
-## 42 · Add Place domain contract
+## 43 · Add Place domain contract
 
 **Goal:** define the application's own place model before adding geocoding.
 
@@ -1015,7 +1043,7 @@ Do not configure production yet.
 
 ---
 
-## 43 · Add OSM-backed place search adapter
+## 44 · Add OSM-backed place search adapter
 
 **Goal:** search Polish places using an appropriate geocoding provider backed by OpenStreetMap data.
 
@@ -1043,7 +1071,7 @@ Do not configure production yet.
 
 ---
 
-## 44 · Extend global search with places
+## 45 · Extend global search with places
 
 **Goal:** make one search experience support species and places.
 
@@ -1064,7 +1092,7 @@ Do not configure production yet.
 
 ---
 
-## 45 · Add place detail page with map extent
+## 46 · Add place detail page with map extent
 
 **Goal:** create the second primary product page.
 
@@ -1084,7 +1112,7 @@ Do not configure production yet.
 
 ---
 
-## 46 · Show biodiversity observations inside a place
+## 47 · Show biodiversity observations inside a place
 
 **Goal:** reuse the observations capability in a new product context.
 
@@ -1105,7 +1133,7 @@ Do not configure production yet.
 
 ---
 
-## 47 · Add Open-Meteo weather section
+## 48 · Add Open-Meteo weather section
 
 **Goal:** add the first independent environmental section.
 
@@ -1126,7 +1154,7 @@ Do not configure production yet.
 
 ---
 
-## 48 · Add GDOŚ protected areas layer
+## 49 · Add GDOŚ protected areas layer
 
 **Goal:** show protected areas within or around a place.
 
@@ -1155,7 +1183,7 @@ Do not configure production yet.
 
 > ## 🏁 Milestone B
 >
-> After step 48, the application has a meaningful MVP:
+> After step 49, the application has a meaningful MVP:
 >
 > search, species page, place page, real biodiversity data, weather, protected areas, PostGIS, and an interactive map.
 
@@ -1165,7 +1193,7 @@ Do not configure production yet.
 
 **Outcome:** external APIs can be slow or partially unavailable without breaking the entire application.
 
-## 49 · Add per-provider timeout and retry policies
+## 50 · Add per-provider timeout and retry policies
 
 **Goal:** explicitly control behavior around slow and unstable APIs.
 
@@ -1187,7 +1215,7 @@ Do not configure production yet.
 
 ---
 
-## 50 · Add provider-aware caching
+## 51 · Add provider-aware caching
 
 **Goal:** reduce latency and unnecessary external API requests.
 
@@ -1210,7 +1238,7 @@ Do not configure production yet.
 
 ---
 
-## 51 · Add rate limiting and request protection
+## 52 · Add rate limiting and request protection
 
 **Goal:** protect the API and indirectly protect external sources.
 
@@ -1232,7 +1260,7 @@ Do not configure production yet.
 
 ---
 
-## 52 · Add structured logging and request correlation
+## 53 · Add structured logging and request correlation
 
 **Goal:** make failures diagnosable instead of producing unrelated log fragments.
 
@@ -1256,7 +1284,7 @@ Do not configure production yet.
 
 ---
 
-## 53 · Add provider health and partial-failure metadata
+## 54 · Add provider health and partial-failure metadata
 
 **Goal:** allow the frontend to know that one provider is unavailable while others still work.
 
@@ -1280,7 +1308,7 @@ Do not configure production yet.
 
 **Outcome:** important system boundaries are tested and each change can be verified automatically.
 
-## 54 · Add focused unit tests for domain mapping
+## 55 · Add focused unit tests for domain mapping
 
 **Goal:** protect normalization logic that is especially sensitive to provider changes.
 
@@ -1301,7 +1329,7 @@ Do not configure production yet.
 
 ---
 
-## 55 · Expand API integration tests
+## 56 · Expand API integration tests
 
 **Goal:** verify controller/service/database/PostGIS behavior without mocking every layer.
 
@@ -1322,7 +1350,7 @@ Do not configure production yet.
 
 ---
 
-## 56 · Add end-to-end happy-path test
+## 57 · Add end-to-end happy-path test
 
 **Goal:** test the product from the user's perspective.
 
@@ -1342,7 +1370,7 @@ Do not configure production yet.
 
 ---
 
-## 57 · Add CI quality pipeline
+## 58 · Add CI quality pipeline
 
 **Goal:** automatically prevent obvious regressions.
 
@@ -1372,7 +1400,7 @@ Do not configure production yet.
 
 **Outcome:** Nature Lens is available under a public URL with separate web/API/database deployment and an end-to-end smoke check.
 
-## 58 · Containerize NestJS for production
+## 59 · Containerize NestJS for production
 
 **Goal:** create a reproducible backend deployment artifact.
 
@@ -1405,7 +1433,7 @@ Run migrations rather than manually recreating the development schema.
 
 ---
 
-## 59 · Add production migration command
+## 60 · Add production migration command
 
 **Goal:** avoid manually clicking SQL commands during deployment.
 
@@ -1433,7 +1461,7 @@ Configure backend build/deployment, secrets, health endpoint, and production `DA
 
 ---
 
-## 60 · Add production API configuration
+## 61 · Add production API configuration
 
 **Goal:** make the backend behave correctly behind the hosting platform.
 
@@ -1461,7 +1489,7 @@ Keep secrets on the server/API side.
 
 ---
 
-## 61 · Add production web configuration
+## 62 · Add production web configuration
 
 **Goal:** make the frontend use the production API correctly and expose production-safe metadata/error handling.
 
@@ -1477,7 +1505,7 @@ Keep secrets on the server/API side.
 
 ---
 
-## 62 · Add post-deploy smoke test
+## 63 · Add post-deploy smoke test
 
 **Goal:** verify that a successful deployment actually means the product works.
 
@@ -1498,7 +1526,7 @@ Keep secrets on the server/API side.
 
 ---
 
-## 63 · Document architecture and production runbook
+## 64 · Document architecture and production runbook
 
 **Goal:** close the first version with documentation that can be defended in an interview and used by another engineer.
 
@@ -1520,7 +1548,7 @@ Keep secrets on the server/API side.
 
 > ## 🏁 Milestone C · Nature Lens V1
 >
-> After step 63, the application is publicly deployed and includes both primary product flows, real data, its own backend/database/PostGIS layer, progressive loading, basic resilience, automated tests, and CI/CD.
+> After step 64, the application is publicly deployed and includes both primary product flows, real data, its own backend/database/PostGIS layer, progressive loading, basic resilience, automated tests, and CI/CD.
 
 ---
 
@@ -1530,7 +1558,7 @@ This phase is part of the product direction but **does not block V1**.
 
 Enter it only after V1 is deployed and there is evidence that additional datasets improve the product.
 
-## 64 · Add BDL forestry adapter
+## 65 · Add BDL forestry adapter
 
 **Goal:** enrich forest-place pages with Bank Danych o Lasach data.
 
@@ -1546,7 +1574,7 @@ Enter it only after V1 is deployed and there is evidence that additional dataset
 
 ---
 
-## 65 · Add forestry map layer and place section
+## 66 · Add forestry map layer and place section
 
 **Goal:** display BDL data without mixing it conceptually with biodiversity observations.
 
@@ -1560,7 +1588,7 @@ Enter it only after V1 is deployed and there is evidence that additional dataset
 
 ---
 
-## 66 · Add IMGW official measurements adapter
+## 67 · Add IMGW official measurements adapter
 
 **Goal:** complement Open-Meteo with official Polish measurements or warnings where they add product value.
 
@@ -1570,7 +1598,7 @@ Enter it only after V1 is deployed and there is evidence that additional dataset
 
 ---
 
-## 67 · Add IMGW section with source distinction
+## 68 · Add IMGW section with source distinction
 
 **Goal:** clearly distinguish model/forecast data from official measurements/warnings.
 
@@ -1584,7 +1612,7 @@ Enter it only after V1 is deployed and there is evidence that additional dataset
 
 ---
 
-## 68 · Add OSM infrastructure/POI layer
+## 69 · Add OSM infrastructure/POI layer
 
 **Goal:** enrich place pages with only the OSM POIs users actually need, such as parking, entrances, or selected paths/infrastructure.
 
@@ -1598,7 +1626,7 @@ Enter it only after V1 is deployed and there is evidence that additional dataset
 
 ---
 
-## 69 · Add scheduled background synchronization only if needed
+## 70 · Add scheduled background synchronization only if needed
 
 **Goal:** introduce background processing only when on-demand synchronization becomes a real limitation.
 
@@ -1617,7 +1645,7 @@ Enter it only after V1 is deployed and there is evidence that additional dataset
 
 ---
 
-## 70 · Add Redis only if measurements justify it
+## 71 · Add Redis only if measurements justify it
 
 **Goal:** avoid infrastructure without a problem to solve.
 
