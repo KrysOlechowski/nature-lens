@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persistence testing, controlled external HTTP, and safely normalized iNaturalist-backed species search, observations, and provider failures
+> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species, controlled external HTTP, and safely normalized iNaturalist-backed search, observations, and provider failures
 >
-> **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
+> **Current phase:** Phase 4 · Persistence, synchronization, and PostGIS
 >
-> **Last completed step:** 22 · Add provider error translation
+> **Last completed step:** 23 · Persist normalized species
 >
-> **Current step:** 23 · Persist normalized species
+> **Current step:** 24 · Persist normalized observations
 >
-> **Next step:** 24 · Persist normalized observations
+> **Next step:** 25 · Add on-demand synchronization policy
 
 ## What currently works
 
@@ -27,6 +27,7 @@
 - Database schema changes are versioned as TypeScript migrations in `api/migrations` and can be applied explicitly from the repository root.
 - The first migration creates the dedicated `extensions` schema, enables PostGIS there, and records its application in the migration history.
 - The `species` table stores application-owned species identities, scientific and display names, basic taxonomy, and timestamps independently of external providers.
+- `species_provider_mappings` keeps provider-specific external IDs separate from the application-owned species model and supports lookups by internal species ID.
 - The `observations` table relates normalized biodiversity observations to species and stores their observation time, WGS84 point location, positional accuracy, obscured-location status, provider identity, external identifier, and source URL.
 - Observation queries are supported by a GiST location index, a B-tree species lookup index, and provider-scoped external-ID uniqueness.
 - Persistence integration tests start an ephemeral PostgreSQL/PostGIS container, create an isolated database, and apply the repository migrations without using the development Supabase project.
@@ -47,6 +48,7 @@
 - `SpeciesService` maps iNaturalist integration results into provider-independent Nature Lens search models with normalized names, taxonomy, and source provenance.
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
+- Species search atomically upserts each normalized species and its provider mapping, then includes the internal string ID in the response. Repeated searches update mutable descriptive fields without creating duplicates.
 - `GET /api/species/:id/observations?page=...&perPage=...` validates the temporary external taxon ID and bounded pagination before returning normalized live observation DTOs with dates, privacy-aware locations, pagination, and source provenance.
 - iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
@@ -84,9 +86,10 @@
 - `node-pg-migrate` manages schema evolution without introducing an ORM. Migrations run through explicit commands rather than during API startup.
 - PostGIS is installed in the dedicated `extensions` schema instead of `public`, keeping extension-owned objects outside the schema exposed by the Supabase Data API.
 - The PostGIS down migration uses `DROP EXTENSION` without `CASCADE`, so PostgreSQL refuses an unsafe rollback when dependent spatial objects exist. The shared `extensions` schema is intentionally preserved.
-- Species use an identity-backed internal `bigint` primary key. Scientific names are required and unique; display names and taxonomy fields remain optional because providers may not supply them consistently.
+- Species use an identity-backed internal `bigint` primary key. Scientific names are required and unique; using `scientific_name` as the upsert conflict key is an explicit single-provider simplification and is not a cross-provider identity-resolution strategy.
 - Species text constraints reject blank values while preserving `NULL` for genuinely unavailable optional data. Provider-specific identifiers do not belong to the core species table.
-- Species timestamps default to the insertion time. Future persistence writes will maintain `updated_at`; no database trigger is introduced before update behavior exists.
+- Species timestamps default to the insertion time. Repeated persistence writes preserve `created_at` and refresh `updated_at` together with `display_name` and `taxon_rank`; no database trigger is used.
+- A species and its `(provider, external_id)` mapping are written in one transaction. An existing mapping to the same species is idempotent, while a mapping to another species raises an invariant error and rolls back all species changes instead of being silently reassigned.
 - Observations use PostGIS `geometry(Point, 4326)` because the initial product needs map and bounding-box queries over WGS84 coordinates; distance calculations that could justify `geography` are not required yet.
 - Observation coordinates must be nonempty and stay within valid longitude and latitude ranges. Positional accuracy is optional, measured in meters, and must be finite and nonnegative when present.
 - Observation location obscurity uses a nullable boolean: `true` means obscured, `false` means explicitly unobscured, and `NULL` means the provider did not supply enough information. Unknown sensitivity metadata must never be interpreted as an unobscured location.
@@ -115,7 +118,7 @@
 - Location availability, privacy, and precision are separate concepts. Missing coordinates do not determine privacy; positive accuracy marks an open point as approximate, while provider privacy restrictions mark a public point as deliberately limited.
 - Date-only observations retain their date without receiving an invented timestamp, preserving the provider's temporal precision.
 - Blank species queries fail before any provider request. Nonblank queries are trimmed and encoded with `URLSearchParams` rather than interpolated into a URL.
-- `SpeciesSearchResult` represents an unpersisted Nature Lens search result rather than duplicating the persisted species identity, which will receive an internal ID only after persistence is introduced.
+- Provider results are first mapped to `NormalizedSpecies`; persisted search results extend that model with the application-owned species ID represented as a string so PostgreSQL `bigint` values remain JSON-safe.
 - Species normalization keeps an optional `commonName` separate from the resolved `displayName`; falling back to the scientific name therefore does not invent a common name.
 - Provider external IDs are normalized to strings and retained with the provider name so provenance survives beyond the integration boundary.
 - The iNaturalist-specific integration type is imported only by its mapper. `SpeciesService` returns Nature Lens models and does not depend on provider response contracts.
@@ -126,8 +129,8 @@
 
 ## Known limitations / blockers
 
-- The frontend only reports API health: it does not use the available species search or observations endpoints yet, and no observation map or domain persistence flow exists yet.
-- The persistence suite currently contains one schema-level integration test, and the external HTTP foundation has focused unit tests; HTTP and end-to-end tests are not configured yet.
+- The frontend only reports API health: it does not use the available species search or observations endpoints yet, and no observation map or observation-persistence flow exists yet.
+- The persistence suite covers schema-level observation persistence, idempotent species upsert, and rollback on provider-mapping conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
@@ -292,7 +295,14 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm format:check`: passed.
 - `git diff --check`: passed.
 - Step 22 Definition of Done is satisfied: common iNaturalist failures produce predictable application-level HTTP responses and useful provider-aware logs without leaking transport or validation details.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding species persistence.
+- `pnpm --filter api test`: passed all 71 API unit tests.
+- `pnpm --filter api test:integration`: passed all 3 persistence tests against ephemeral PostgreSQL/PostGIS, including idempotent species upsert and transactional rollback on a mapping conflict.
+- `pnpm exec eslint api`: passed.
+- `pnpm --filter api build`: passed.
+- Targeted Prettier check and `git diff --check`: passed.
+- Step 23 Definition of Done is satisfied: repeated persistence of the same provider species returns one internal species and one provider mapping while updating the mutable normalized fields.
 
 ## Next implementation
 
-Discuss and approve **23 · Persist normalized species** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **24 · Persist normalized observations** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

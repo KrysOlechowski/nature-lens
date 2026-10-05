@@ -19,6 +19,7 @@ class SpeciesSourceDto {
 }
 
 export class SpeciesSearchResultDto {
+  readonly id: string;
   readonly scientificName: string;
   readonly commonName?: string;
   readonly displayName: string;
@@ -26,6 +27,7 @@ export class SpeciesSearchResultDto {
   readonly source: SpeciesSourceDto;
 
   constructor(result: SpeciesSearchResult) {
+    this.id = result.id;
     this.scientificName = result.scientificName;
     if (result.commonName !== undefined) {
       this.commonName = result.commonName;

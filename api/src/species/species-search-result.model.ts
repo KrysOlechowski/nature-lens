@@ -1,4 +1,4 @@
-export interface SpeciesSearchResult {
+export interface NormalizedSpecies {
   scientificName: string;
   commonName?: string;
   displayName: string;
@@ -9,4 +9,8 @@ export interface SpeciesSearchResult {
     provider: string;
     externalId: string;
   };
+}
+
+export interface SpeciesSearchResult extends NormalizedSpecies {
+  id: string;
 }

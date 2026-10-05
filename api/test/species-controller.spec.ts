@@ -9,6 +9,7 @@ describe("SpeciesController", () => {
       {
         commonName: "Red Deer",
         displayName: "Red Deer",
+        id: "1",
         scientificName: "Cervus elaphus",
         source: {
           externalId: "42115",
@@ -20,6 +21,7 @@ describe("SpeciesController", () => {
       },
       {
         displayName: "Cervus nippon",
+        id: "2",
         scientificName: "Cervus nippon",
         source: {
           externalId: "42116",
@@ -39,6 +41,7 @@ describe("SpeciesController", () => {
       {
         commonName: "Red Deer",
         displayName: "Red Deer",
+        id: "1",
         scientificName: "Cervus elaphus",
         source: {
           externalId: "42115",
@@ -50,6 +53,7 @@ describe("SpeciesController", () => {
       },
       {
         displayName: "Cervus nippon",
+        id: "2",
         scientificName: "Cervus nippon",
         source: {
           externalId: "42116",

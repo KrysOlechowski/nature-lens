@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { INaturalistAdapter } from "../src/inaturalist/inaturalist.adapter.js";
+import type { SpeciesRepository } from "../src/species/species.repository.js";
 import { SpeciesService } from "../src/species/species.service.js";
 
 describe("SpeciesService", () => {
@@ -15,12 +16,17 @@ describe("SpeciesService", () => {
     const iNaturalistAdapter = {
       searchSpecies,
     } as Pick<INaturalistAdapter, "searchSpecies"> as INaturalistAdapter;
-    const service = new SpeciesService(iNaturalistAdapter);
+    const upsert = vi.fn().mockResolvedValue("42");
+    const speciesRepository = {
+      upsert,
+    } as Pick<SpeciesRepository, "upsert"> as SpeciesRepository;
+    const service = new SpeciesService(iNaturalistAdapter, speciesRepository);
 
     await expect(service.searchSpecies("bison")).resolves.toEqual([
       {
         commonName: "Wisent",
         displayName: "Wisent",
+        id: "42",
         scientificName: "Bos bonasus",
         source: {
           externalId: "1696537",
@@ -32,6 +38,18 @@ describe("SpeciesService", () => {
       },
     ]);
     expect(searchSpecies).toHaveBeenCalledWith("bison");
+    expect(upsert).toHaveBeenCalledWith({
+      commonName: "Wisent",
+      displayName: "Wisent",
+      scientificName: "Bos bonasus",
+      source: {
+        externalId: "1696537",
+        provider: "iNaturalist",
+      },
+      taxonomy: {
+        rank: "species",
+      },
+    });
   });
 
   it("returns normalized observation models instead of provider results", async () => {
@@ -60,7 +78,8 @@ describe("SpeciesService", () => {
     const iNaturalistAdapter = {
       getObservations,
     } as Pick<INaturalistAdapter, "getObservations"> as INaturalistAdapter;
-    const service = new SpeciesService(iNaturalistAdapter);
+    const speciesRepository = {} as SpeciesRepository;
+    const service = new SpeciesService(iNaturalistAdapter, speciesRepository);
 
     await expect(
       service.getObservations(1696537, { page: 2, perPage: 20 }),

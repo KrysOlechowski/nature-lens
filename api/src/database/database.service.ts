@@ -4,7 +4,12 @@ import {
   type OnApplicationShutdown,
   type OnModuleInit,
 } from "@nestjs/common";
-import { Pool, type QueryResult, type QueryResultRow } from "pg";
+import {
+  Pool,
+  type PoolClient,
+  type QueryResult,
+  type QueryResultRow,
+} from "pg";
 import { environment } from "../config/environment.js";
 
 @Injectable()
@@ -29,5 +34,24 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
     values: unknown[] = [],
   ): Promise<QueryResult<ResultRow>> {
     return this.pool.query<ResultRow>(text, values);
+  }
+
+  async withTransaction<Result>(
+    operation: (client: PoolClient) => Promise<Result>,
+  ): Promise<Result> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      const result = await operation(client);
+      await client.query("COMMIT");
+
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
