@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 3 · iNaturalist and the first backend vertical slice
 >
-> **Last completed step:** 20 · Normalize observations and protect sensitive coordinates
+> **Last completed step:** 21 · Expose live species observations endpoint
 >
-> **Current step:** 21 · Expose live species observations endpoint
+> **Current step:** 22 · Add provider error translation
 >
-> **Next step:** 22 · Add provider error translation
+> **Next step:** 23 · Persist normalized species
 
 ## What currently works
 
@@ -47,6 +47,7 @@
 - `SpeciesService` maps iNaturalist integration results into provider-independent Nature Lens search models with normalized names, taxonomy, and source provenance.
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
+- `GET /api/species/:id/observations?page=...&perPage=...` validates the temporary external taxon ID and bounded pagination before returning normalized live observation DTOs with dates, privacy-aware locations, pagination, and source provenance.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
 - Root commands lint, typecheck, build, and format both applications consistently.
@@ -116,10 +117,12 @@
 - The iNaturalist-specific integration type is imported only by its mapper. `SpeciesService` returns Nature Lens models and does not depend on provider response contracts.
 - Species search HTTP validation reuses Zod rather than adding class-validator and class-transformer for one query field. Missing, blank, and repeated `q` parameters return `400 Bad Request` before the provider is called.
 - The species controller remains a transport boundary: it validates HTTP input, delegates to `SpeciesService`, and maps domain results to explicit response DTOs.
+- Until Nature Lens species persistence introduces application-owned identity, the `:id` observations path parameter is the external iNaturalist taxon ID returned by species search. The controller names it `externalTaxonId` internally so this temporary meaning stays explicit.
+- Live observation pagination defaults to page `1` with `50` records and accepts at most `200` records per page, matching the provider boundary without exposing its response contract.
 
 ## Known limitations / blockers
 
-- The frontend only reports API health: it does not use the available species search endpoint yet, and no observation map, domain persistence flow, or application observation endpoint exists yet.
+- The frontend only reports API health: it does not use the available species search or observations endpoints yet, and no observation map or domain persistence flow exists yet.
 - The persistence suite currently contains one schema-level integration test, and the external HTTP foundation has focused unit tests; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -272,7 +275,13 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm format:check`: passed.
 - `git diff --check`: passed.
 - Step 20 Definition of Done is satisfied: normalized observations preserve limited precision and provider restrictions without inferring obscurity from missing coordinates or exposing more precise non-public accuracy.
+- `pnpm --filter api test`: passed all 57 API unit tests, including live-observation endpoint DTO mapping, pagination defaults, service delegation, and invalid-request rejection.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after exposing live observations.
+- `pnpm --filter api build`: passed.
+- Targeted ESLint and Prettier checks for the species controller, observation response DTOs, and controller tests: passed.
+- `git diff --check`: passed.
+- Step 21 Definition of Done is satisfied: the API returns normalized live observation DTOs containing privacy-aware location, date, and source provenance.
 
 ## Next implementation
 
-Discuss and approve **21 · Expose live species observations endpoint** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **22 · Add provider error translation** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

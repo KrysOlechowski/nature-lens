@@ -1,10 +1,31 @@
-import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Param,
+  Query,
+} from "@nestjs/common";
 import { z } from "zod";
+import { SpeciesObservationPageDto } from "./species-observation.dto.js";
 import { SpeciesSearchResultDto } from "./species-search-result.dto.js";
 import { SpeciesService } from "./species.service.js";
 
 const speciesSearchQuerySchema = z.string().trim().min(1);
 const INVALID_QUERY_MESSAGE = 'Query parameter "q" must be a non-empty string';
+const positiveIntegerStringSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/)
+  .transform(Number)
+  .refine(Number.isSafeInteger);
+const observationsRequestSchema = z.object({
+  externalTaxonId: positiveIntegerStringSchema,
+  page: positiveIntegerStringSchema,
+  perPage: positiveIntegerStringSchema.refine((value) => value <= 200),
+});
+const INVALID_OBSERVATIONS_REQUEST_MESSAGE =
+  'Path parameter "id" and query parameters "page" and "perPage" must be positive integers; "perPage" cannot exceed 200';
+const DEFAULT_OBSERVATIONS_PAGE = "1";
+const DEFAULT_OBSERVATIONS_PER_PAGE = "50";
 
 @Controller("species")
 export class SpeciesController {
@@ -23,5 +44,30 @@ export class SpeciesController {
     const results = await this.speciesService.searchSpecies(parsedQuery.data);
 
     return results.map((result) => new SpeciesSearchResultDto(result));
+  }
+
+  @Get(":id/observations")
+  async getObservations(
+    @Param("id") id: unknown,
+    @Query("page") page: unknown,
+    @Query("perPage") perPage: unknown,
+  ): Promise<SpeciesObservationPageDto> {
+    const parsedRequest = observationsRequestSchema.safeParse({
+      externalTaxonId: id,
+      page: page ?? DEFAULT_OBSERVATIONS_PAGE,
+      perPage: perPage ?? DEFAULT_OBSERVATIONS_PER_PAGE,
+    });
+
+    if (!parsedRequest.success) {
+      throw new BadRequestException(INVALID_OBSERVATIONS_REQUEST_MESSAGE);
+    }
+
+    const { externalTaxonId, ...pagination } = parsedRequest.data;
+    const observationPage = await this.speciesService.getObservations(
+      externalTaxonId,
+      pagination,
+    );
+
+    return new SpeciesObservationPageDto(observationPage);
   }
 }
