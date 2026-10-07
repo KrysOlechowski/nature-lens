@@ -1698,4 +1698,4 @@ Enter it only after V1 is deployed and there is evidence that additional dataset
 >
 > If implementation reveals that a step is too large, an earlier decision was wrong, or a real external API behaves differently than expected, update the plan deliberately.
 >
-> The objective is not to "complete 70 commits". The objective is to build a product whose architecture and code are genuinely understood.
+> The objective is not to "complete 71 commits". The objective is to build a product whose architecture and code are genuinely understood.
