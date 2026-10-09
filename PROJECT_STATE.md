@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded spatial observation queries, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 4 · Persistence, synchronization, and PostGIS
 >
-> **Last completed step:** 25 · Add on-demand synchronization policy
+> **Last completed step:** 26 · Query observations by bounding box with PostGIS
 >
-> **Current step:** 26 · Query observations by bounding box with PostGIS
+> **Current step:** 27 · Return observations as GeoJSON
 >
-> **Next step:** 27 · Return observations as GeoJSON
+> **Next step:** 28 · Initialize shadcn/ui foundation
 
 ## What currently works
 
@@ -50,6 +50,7 @@
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
 - Species search atomically upserts each normalized species and its provider mapping, then includes the internal string ID in the response. Repeated searches update mutable descriptive fields without creating duplicates.
 - `GET /api/species/:id/observations?page=...&perPage=...` accepts the application-owned species ID and uses an exact-page read-through cache in PostgreSQL. Fresh pages avoid iNaturalist; missing or stale pages are normalized and atomically replaced after a provider request.
+- `ObservationRepository` can query one species from local PostgreSQL by a WGS84 bounding box, excludes records without public coordinates, includes points on the boundary, orders results deterministically by recency, and enforces a maximum of 1,000 records.
 - Observation responses expose runtime metadata identifying a local-database hit or provider synchronization, the freshness state, and the last successful synchronization timestamp.
 - When refresh of a stale page fails with a controlled provider error, the endpoint returns the stale persisted page; a missing page still returns the provider error.
 - iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
@@ -97,6 +98,8 @@
 - Observation location obscurity uses a nullable boolean: `true` means obscured, `false` means explicitly unobscured, and `NULL` means the provider did not supply enough information. Unknown sensitivity metadata must never be interpreted as an unobscured location.
 - Observation provenance is stored as a nonblank provider, provider-scoped external identifier, and source URL. A unique constraint on `(provider, external_id)` prevents duplicate observations from the same provider while allowing different providers to use the same external ID.
 - The observation location GiST index supports bounding-box queries, while the `species_id` B-tree index supports species-observation lookups. No date index is introduced before a concrete date-filtering query exists.
+- Bounding-box reads use an explicit `OPERATOR(extensions.&&)` GiST prefilter followed by `extensions.ST_Intersects` against an SRID 4326 envelope. PostGIS operators and functions are schema-qualified because the extension is installed outside `public`.
+- Bounding-box results are ordered by observation date, timestamp, and descending internal ID, then capped at 1,000 records. Spatial clustering or sampling is deferred until map usage creates a concrete requirement.
 - Deleting a species referenced by observations is restricted so observation records cannot become detached from their normalized species identity.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 - Database integration tests use Testcontainers with the `postgis/postgis:17-3.5-alpine` image. The image is explicitly run as `linux/amd64`, matching its published architecture and allowing Docker Desktop emulation on Apple silicon.
@@ -327,7 +330,14 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm format:check`: passed.
 - `git diff --check`: passed.
 - Step 25 Definition of Done is satisfied: repeated requests for a sufficiently fresh exact observation page use PostgreSQL without contacting iNaturalist.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding the bounding-box query.
+- `pnpm --filter api test`: passed all 77 API unit tests.
+- `pnpm --filter api test:integration`: passed all 9 persistence tests against ephemeral PostgreSQL/PostGIS, including species-scoped bounding-box filtering, boundary inclusion, deterministic limiting, and exclusion of observations without locations.
+- `pnpm --filter api build`: passed.
+- `pnpm lint`: passed for `web` and `api`.
+- Targeted Prettier check and `git diff --check`: passed.
+- Step 26 Definition of Done is satisfied: region bounding-box queries use normalized local observations through PostGIS and have integration coverage.
 
 ## Next implementation
 
-Discuss and approve **26 · Query observations by bounding box with PostGIS** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **27 · Return observations as GeoJSON** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

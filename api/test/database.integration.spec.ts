@@ -352,6 +352,126 @@ describe("database persistence", () => {
     ]);
   });
 
+  it("queries one species within a bounding box with a deterministic limit", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+    const otherSpeciesId = await speciesRepository.upsert(
+      createSpecies({
+        scientificName: "Bison bonasus",
+        commonName: "European bison",
+        displayName: "European bison",
+        source: {
+          provider: "iNaturalist",
+          externalId: "42420",
+        },
+      }),
+    );
+    const boundingBox = {
+      west: 20,
+      south: 51,
+      east: 22,
+      north: 53,
+    };
+    const olderObservation = createObservation({
+      observedOn: "2026-09-30",
+      observedAt: null,
+      location: {
+        latitude: 51.7592,
+        longitude: 19.456,
+        accuracyMeters: 15,
+        precision: "approximate",
+      },
+      locationPrivacy: "open",
+      source: {
+        provider: "iNaturalist",
+        externalId: "405566289",
+        url: "https://www.inaturalist.org/observations/405566289",
+      },
+    });
+    const newestObservation = createObservation({
+      observedOn: "2026-10-05",
+      observedAt: "2026-10-05T09:00:00.000Z",
+      location: {
+        latitude: 52.2297,
+        longitude: 21.0122,
+        accuracyMeters: 10,
+        precision: "approximate",
+      },
+      locationPrivacy: "open",
+      source: {
+        provider: "iNaturalist",
+        externalId: "405566290",
+        url: "https://www.inaturalist.org/observations/405566290",
+      },
+    });
+    const boundaryObservation = createObservation({
+      observedOn: "2026-10-04",
+      observedAt: "2026-10-04T09:00:00.000Z",
+      location: {
+        latitude: 51,
+        longitude: 20,
+        accuracyMeters: null,
+        precision: "unknown",
+      },
+      locationPrivacy: "unknown",
+      source: {
+        provider: "iNaturalist",
+        externalId: "405566291",
+        url: "https://www.inaturalist.org/observations/405566291",
+      },
+    });
+
+    await observationRepository.upsertMany(speciesId, [
+      olderObservation,
+      newestObservation,
+      boundaryObservation,
+      createObservation({
+        observedOn: "2026-10-06",
+        location: null,
+        locationPrivacy: "private",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566292",
+          url: "https://www.inaturalist.org/observations/405566292",
+        },
+      }),
+    ]);
+    await observationRepository.upsertMany(otherSpeciesId, [
+      createObservation({
+        observedOn: "2026-10-06",
+        location: newestObservation.location,
+        locationPrivacy: "open",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566293",
+          url: "https://www.inaturalist.org/observations/405566293",
+        },
+      }),
+    ]);
+
+    await expect(
+      observationRepository.findWithinBoundingBox(speciesId, boundingBox, 1),
+    ).resolves.toEqual([newestObservation]);
+    await expect(
+      observationRepository.findWithinBoundingBox(
+        speciesId,
+        boundingBox,
+        1_000,
+      ),
+    ).resolves.toEqual([newestObservation, boundaryObservation]);
+    await expect(
+      observationRepository.findWithinBoundingBox(
+        speciesId,
+        boundingBox,
+        1_001,
+      ),
+    ).rejects.toThrow(RangeError);
+  });
+
   it("persists and reads exact observation page snapshots in provider order", async () => {
     const transactionDatabase = createTransactionDatabase(client);
     const speciesRepository = new SpeciesRepository(transactionDatabase);

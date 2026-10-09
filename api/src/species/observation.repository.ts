@@ -29,11 +29,7 @@ interface PersistedObservationIdRow {
   external_id: string;
 }
 
-interface PersistedObservationPageRow {
-  total_results: number;
-  page: number;
-  per_page: number;
-  last_successful_sync_at: Date;
+interface PersistedObservationRow {
   observation_id: string | null;
   observed_on: string | null;
   observed_at: Date | null;
@@ -47,6 +43,13 @@ interface PersistedObservationPageRow {
   source_url: string | null;
 }
 
+interface PersistedObservationPageRow extends PersistedObservationRow {
+  total_results: number;
+  page: number;
+  per_page: number;
+  last_successful_sync_at: Date;
+}
+
 interface SyncIdRow {
   id: string;
   last_successful_sync_at: Date;
@@ -56,6 +59,15 @@ export interface ObservationPageKey {
   page: number;
   perPage: number;
 }
+
+export interface ObservationBoundingBox {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+export const MAX_BOUNDING_BOX_OBSERVATIONS = 1_000;
 
 @Injectable()
 export class ObservationRepository {
@@ -123,6 +135,63 @@ export class ObservationRepository {
       lastSuccessfulSyncAt: metadata.last_successful_sync_at.toISOString(),
       results: result.rows.flatMap(toSpeciesObservation),
     };
+  }
+
+  async findWithinBoundingBox(
+    speciesId: string,
+    boundingBox: ObservationBoundingBox,
+    limit: number,
+  ): Promise<SpeciesObservation[]> {
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > MAX_BOUNDING_BOX_OBSERVATIONS
+    ) {
+      throw new RangeError(
+        `Bounding-box observation limit must be an integer between 1 and ${MAX_BOUNDING_BOX_OBSERVATIONS}`,
+      );
+    }
+
+    const result = await this.database.query<PersistedObservationRow>(
+      `
+        WITH bounds AS (
+          SELECT extensions.ST_MakeEnvelope($2, $3, $4, $5, 4326) AS geometry
+        )
+        SELECT
+          observation.id::text AS observation_id,
+          observation.observed_on::text,
+          observation.observed_at,
+          extensions.ST_X(observation.location) AS longitude,
+          extensions.ST_Y(observation.location) AS latitude,
+          observation.positional_accuracy_meters,
+          observation.location_privacy,
+          observation.location_precision,
+          observation.provider,
+          observation.external_id,
+          observation.source_url
+        FROM observations AS observation
+        CROSS JOIN bounds
+        WHERE observation.species_id = $1
+          AND observation.location IS NOT NULL
+          AND observation.location OPERATOR(extensions.&&) bounds.geometry
+          AND extensions.ST_Intersects(observation.location, bounds.geometry)
+        ORDER BY
+          COALESCE(observation.observed_on, observation.observed_at::date) DESC NULLS LAST,
+          observation.observed_at DESC NULLS LAST,
+          observation.id DESC
+        LIMIT $6
+      `,
+      [
+        speciesId,
+        boundingBox.west,
+        boundingBox.south,
+        boundingBox.east,
+        boundingBox.north,
+        limit,
+      ],
+    );
+
+    return result.rows.flatMap(toSpeciesObservation);
   }
 
   async replacePage(
@@ -294,7 +363,7 @@ export class ObservationRepository {
 }
 
 function toSpeciesObservation(
-  row: PersistedObservationPageRow,
+  row: PersistedObservationRow,
 ): SpeciesObservation[] {
   if (
     row.observation_id === null ||
