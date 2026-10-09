@@ -1,9 +1,10 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import {
   INaturalistAdapter,
   type INaturalistObservationPageRequest,
 } from "../inaturalist/inaturalist.adapter.js";
 import { mapINaturalistObservation } from "./inaturalist-observation.mapper.js";
+import { ObservationRepository } from "./observation.repository.js";
 import type { SpeciesObservationPage } from "./species-observation.model.js";
 import { mapINaturalistSpecies } from "./inaturalist-species.mapper.js";
 import type { SpeciesSearchResult } from "./species-search-result.model.js";
@@ -14,6 +15,7 @@ export class SpeciesService {
   constructor(
     private readonly iNaturalistAdapter: INaturalistAdapter,
     private readonly speciesRepository: SpeciesRepository,
+    private readonly observationRepository: ObservationRepository,
   ) {}
 
   async searchSpecies(query: string): Promise<SpeciesSearchResult[]> {
@@ -29,19 +31,38 @@ export class SpeciesService {
   }
 
   async getObservations(
-    taxonId: number,
+    speciesId: string,
     pagination: INaturalistObservationPageRequest,
   ): Promise<SpeciesObservationPage> {
+    const externalTaxonId = await this.speciesRepository.findProviderExternalId(
+      speciesId,
+      "iNaturalist",
+    );
+
+    if (!externalTaxonId) {
+      throw new NotFoundException("Species was not found");
+    }
+
+    const taxonId = Number(externalTaxonId);
+
+    if (!Number.isSafeInteger(taxonId) || taxonId < 1) {
+      throw new Error("Persisted iNaturalist taxon identifier is invalid");
+    }
+
     const providerPage = await this.iNaturalistAdapter.getObservations(
       taxonId,
       pagination,
     );
 
+    const observations = providerPage.results.map(mapINaturalistObservation);
+
+    await this.observationRepository.upsertMany(speciesId, observations);
+
     return {
       totalResults: providerPage.totalResults,
       page: providerPage.page,
       perPage: providerPage.perPage,
-      results: providerPage.results.map(mapINaturalistObservation),
+      results: observations,
     };
   }
 }

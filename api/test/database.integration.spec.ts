@@ -9,6 +9,8 @@ import {
   it,
 } from "vitest";
 import type { DatabaseService } from "../src/database/database.service.js";
+import { ObservationRepository } from "../src/species/observation.repository.js";
+import type { SpeciesObservation } from "../src/species/species-observation.model.js";
 import type { NormalizedSpecies } from "../src/species/species-search-result.model.js";
 import {
   SpeciesProviderMappingConflictError,
@@ -42,6 +44,28 @@ function createSpecies(
     source: {
       provider: "iNaturalist",
       externalId: "522194",
+    },
+    ...overrides,
+  };
+}
+
+function createObservation(
+  overrides: Partial<SpeciesObservation> = {},
+): SpeciesObservation {
+  return {
+    observedOn: "2026-10-03",
+    observedAt: "2026-10-03T14:45:26.000Z",
+    location: {
+      latitude: 53.4029839302,
+      longitude: 23.2064155596,
+      accuracyMeters: 25_876,
+      precision: "limited",
+    },
+    locationPrivacy: "obscured",
+    source: {
+      provider: "iNaturalist",
+      externalId: "405566287",
+      url: "https://www.inaturalist.org/observations/405566287",
     },
     ...overrides,
   };
@@ -227,6 +251,126 @@ describe("database persistence", () => {
         taxon_rank: "species",
       },
     ]);
+  });
+
+  it("atomically upserts an idempotent observation batch", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+    const observations = [
+      createObservation(),
+      createObservation({
+        observedOn: "2026-10-04",
+        observedAt: null,
+        location: null,
+        locationPrivacy: "unknown",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566288",
+          url: "https://www.inaturalist.org/observations/405566288",
+        },
+      }),
+    ];
+
+    await observationRepository.upsertMany(speciesId, observations);
+    await observationRepository.upsertMany(speciesId, [
+      createObservation({
+        location: {
+          latitude: 52.2297,
+          longitude: 21.0122,
+          accuracyMeters: 10,
+          precision: "approximate",
+        },
+        locationPrivacy: "open",
+      }),
+      observations[1]!,
+    ]);
+
+    const result = await client.query<{
+      external_id: string;
+      latitude: number | null;
+      location_obscured: boolean | null;
+      longitude: number | null;
+      observation_count: string;
+      observed_at: Date | null;
+      observed_on: string | null;
+      srid: number | null;
+    }>(
+      `
+        SELECT
+          external_id,
+          observed_on::text,
+          observed_at,
+          location_obscured,
+          extensions.ST_X(location) AS longitude,
+          extensions.ST_Y(location) AS latitude,
+          extensions.ST_SRID(location) AS srid,
+          count(*) OVER ()::text AS observation_count
+        FROM observations
+        WHERE species_id = $1
+        ORDER BY external_id
+      `,
+      [speciesId],
+    );
+
+    expect(result.rows).toEqual([
+      {
+        external_id: "405566287",
+        latitude: 52.2297,
+        location_obscured: false,
+        longitude: 21.0122,
+        observation_count: "2",
+        observed_at: new Date("2026-10-03T14:45:26.000Z"),
+        observed_on: "2026-10-03",
+        srid: 4326,
+      },
+      {
+        external_id: "405566288",
+        latitude: null,
+        location_obscured: null,
+        longitude: null,
+        observation_count: "2",
+        observed_at: null,
+        observed_on: "2026-10-04",
+        srid: null,
+      },
+    ]);
+  });
+
+  it("rolls back the whole observation batch when one record is invalid", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+
+    await expect(
+      observationRepository.upsertMany(speciesId, [
+        createObservation(),
+        createObservation({
+          source: {
+            provider: "iNaturalist",
+            externalId: "",
+            url: "https://www.inaturalist.org/observations/invalid",
+          },
+        }),
+      ]),
+    ).rejects.toThrow();
+
+    const result = await client.query<{ observation_count: string }>(
+      `
+        SELECT count(*)::text AS observation_count
+        FROM observations
+        WHERE species_id = $1
+      `,
+      [speciesId],
+    );
+
+    expect(result.rows[0]?.observation_count).toBe("0");
   });
 
   it("rolls back species changes when a provider mapping conflicts", async () => {

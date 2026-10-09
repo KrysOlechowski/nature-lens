@@ -10,6 +10,10 @@ interface SpeciesMappingRow {
   species_id: string;
 }
 
+interface ProviderExternalIdRow {
+  external_id: string;
+}
+
 export class SpeciesProviderMappingConflictError extends Error {
   constructor() {
     super("Provider species identifier is already mapped to another species");
@@ -77,5 +81,22 @@ export class SpeciesRepository {
 
       return speciesId;
     });
+  }
+
+  async findProviderExternalId(
+    speciesId: string,
+    provider: string,
+  ): Promise<string | null> {
+    const result = await this.database.query<ProviderExternalIdRow>(
+      `
+        SELECT external_id
+        FROM species_provider_mappings
+        WHERE species_id = $1
+          AND provider = $2
+      `,
+      [speciesId, provider],
+    );
+
+    return result.rows[0]?.external_id ?? null;
   }
 }

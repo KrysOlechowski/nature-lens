@@ -147,7 +147,7 @@ describe("SpeciesController", () => {
         },
       ],
     });
-    expect(getObservations).toHaveBeenCalledWith(1696537, {
+    expect(getObservations).toHaveBeenCalledWith("1696537", {
       page: 2,
       perPage: 20,
     });
@@ -167,7 +167,7 @@ describe("SpeciesController", () => {
 
     await controller.getObservations("1696537", undefined, undefined);
 
-    expect(getObservations).toHaveBeenCalledWith(1696537, {
+    expect(getObservations).toHaveBeenCalledWith("1696537", {
       page: 1,
       perPage: 50,
     });
@@ -177,6 +177,7 @@ describe("SpeciesController", () => {
     ["zero species ID", "0", undefined, undefined],
     ["non-numeric species ID", "deer", undefined, undefined],
     ["repeated species ID", ["1", "2"], undefined, undefined],
+    ["out-of-range species ID", "9223372036854775808", undefined, undefined],
     ["zero page", "1696537", "0", undefined],
     ["fractional page", "1696537", "1.5", undefined],
     ["repeated page", "1696537", ["1", "2"], undefined],

@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species, controlled external HTTP, and safely normalized iNaturalist-backed search, observations, and provider failures
+> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 4 · Persistence, synchronization, and PostGIS
 >
-> **Last completed step:** 23 · Persist normalized species
+> **Last completed step:** 24 · Persist normalized observations
 >
-> **Current step:** 24 · Persist normalized observations
+> **Current step:** 25 · Add on-demand synchronization policy
 >
-> **Next step:** 25 · Add on-demand synchronization policy
+> **Next step:** 26 · Query observations by bounding box with PostGIS
 
 ## What currently works
 
@@ -28,7 +28,7 @@
 - The first migration creates the dedicated `extensions` schema, enables PostGIS there, and records its application in the migration history.
 - The `species` table stores application-owned species identities, scientific and display names, basic taxonomy, and timestamps independently of external providers.
 - `species_provider_mappings` keeps provider-specific external IDs separate from the application-owned species model and supports lookups by internal species ID.
-- The `observations` table relates normalized biodiversity observations to species and stores their observation time, WGS84 point location, positional accuracy, obscured-location status, provider identity, external identifier, and source URL.
+- The `observations` table relates normalized biodiversity observations to species and stores provider-supplied date and optional timestamp independently, optional WGS84 point location, positional accuracy, obscured-location status, provider identity, external identifier, and source URL.
 - Observation queries are supported by a GiST location index, a B-tree species lookup index, and provider-scoped external-ID uniqueness.
 - Persistence integration tests start an ephemeral PostgreSQL/PostGIS container, create an isolated database, and apply the repository migrations without using the development Supabase project.
 - Each database integration test receives one PostgreSQL client and runs inside a transaction that is rolled back afterward. The initial test persists and reads a species observation, including its WGS84 point.
@@ -49,7 +49,7 @@
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
 - Species search atomically upserts each normalized species and its provider mapping, then includes the internal string ID in the response. Repeated searches update mutable descriptive fields without creating duplicates.
-- `GET /api/species/:id/observations?page=...&perPage=...` validates the temporary external taxon ID and bounded pagination before returning normalized live observation DTOs with dates, privacy-aware locations, pagination, and source provenance.
+- `GET /api/species/:id/observations?page=...&perPage=...` accepts the application-owned species ID, resolves its iNaturalist mapping, fetches and normalizes a live page, atomically persists the batch, and returns privacy-aware observation DTOs.
 - iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
@@ -117,6 +117,10 @@
 - Observation normalization uses only the public positional accuracy for obscured or private locations. If it is absent, the normalized accuracy remains unknown rather than falling back to the provider's potentially more precise value.
 - Location availability, privacy, and precision are separate concepts. Missing coordinates do not determine privacy; positive accuracy marks an open point as approximate, while provider privacy restrictions mark a public point as deliberately limited.
 - Date-only observations retain their date without receiving an invented timestamp, preserving the provider's temporal precision.
+- Observation dates and timestamps remain independent persisted facts: neither value is synthesized from the other, and either may be absent when the provider omits it.
+- Missing public coordinates are persisted as `NULL`; they are not reconstructed, replaced, or inferred from other provider data.
+- Observation pages are written in one transaction with a single batch upsert. `(provider, external_id)` provides idempotency, and an invalid row rolls back the whole batch.
+- PostGIS points are constructed in WGS84 axis order as `(longitude, latitude)`.
 - Blank species queries fail before any provider request. Nonblank queries are trimmed and encoded with `URLSearchParams` rather than interpolated into a URL.
 - Provider results are first mapped to `NormalizedSpecies`; persisted search results extend that model with the application-owned species ID represented as a string so PostgreSQL `bigint` values remain JSON-safe.
 - Species normalization keeps an optional `commonName` separate from the resolved `displayName`; falling back to the scientific name therefore does not invent a common name.
@@ -124,13 +128,13 @@
 - The iNaturalist-specific integration type is imported only by its mapper. `SpeciesService` returns Nature Lens models and does not depend on provider response contracts.
 - Species search HTTP validation reuses Zod rather than adding class-validator and class-transformer for one query field. Missing, blank, and repeated `q` parameters return `400 Bad Request` before the provider is called.
 - The species controller remains a transport boundary: it validates HTTP input, delegates to `SpeciesService`, and maps domain results to explicit response DTOs.
-- Until Nature Lens species persistence introduces application-owned identity, the `:id` observations path parameter is the external iNaturalist taxon ID returned by species search. The controller names it `externalTaxonId` internally so this temporary meaning stays explicit.
+- The `:id` observations path parameter is the application-owned species ID returned by species search. Provider identifiers are resolved only inside the application persistence boundary.
 - Live observation pagination defaults to page `1` with `50` records and accepts at most `200` records per page, matching the provider boundary without exposing its response contract.
 
 ## Known limitations / blockers
 
-- The frontend only reports API health: it does not use the available species search or observations endpoints yet, and no observation map or observation-persistence flow exists yet.
-- The persistence suite covers schema-level observation persistence, idempotent species upsert, and rollback on provider-mapping conflicts; HTTP and end-to-end tests are not configured yet.
+- The frontend only reports API health: it does not use the available species search or observations endpoints yet, and no observation map exists yet.
+- The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
@@ -302,7 +306,14 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm --filter api build`: passed.
 - Targeted Prettier check and `git diff --check`: passed.
 - Step 23 Definition of Done is satisfied: repeated persistence of the same provider species returns one internal species and one provider mapping while updating the mutable normalized fields.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding observation persistence.
+- `pnpm --filter api test`: passed all 73 API unit tests, including internal species-ID resolution, invalid-ID rejection, and missing-mapping handling.
+- `pnpm --filter api test:integration`: passed all 5 persistence tests against ephemeral PostgreSQL/PostGIS, including idempotent batch upsert, nullable dates and locations, coordinate order, and atomic rollback.
+- `pnpm exec eslint api`: passed.
+- `pnpm --filter api build`: passed.
+- Targeted Prettier formatting and `git diff --check`: passed.
+- Step 24 Definition of Done is satisfied: synchronizing the same observation range repeatedly updates the existing provider records without creating duplicates.
 
 ## Next implementation
 
-Discuss and approve **24 · Persist normalized observations** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **25 · Add on-demand synchronization policy** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

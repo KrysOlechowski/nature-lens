@@ -17,8 +17,16 @@ const positiveIntegerStringSchema = z
   .regex(/^[1-9]\d*$/)
   .transform(Number)
   .refine(Number.isSafeInteger);
+const maximumPostgreSqlBigInt = 9_223_372_036_854_775_807n;
+const positiveBigIntStringSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/)
+  .refine(
+    (value) =>
+      !/^[1-9]\d*$/.test(value) || BigInt(value) <= maximumPostgreSqlBigInt,
+  );
 const observationsRequestSchema = z.object({
-  externalTaxonId: positiveIntegerStringSchema,
+  speciesId: positiveBigIntStringSchema,
   page: positiveIntegerStringSchema,
   perPage: positiveIntegerStringSchema.refine((value) => value <= 200),
 });
@@ -53,7 +61,7 @@ export class SpeciesController {
     @Query("perPage") perPage: unknown,
   ): Promise<SpeciesObservationPageDto> {
     const parsedRequest = observationsRequestSchema.safeParse({
-      externalTaxonId: id,
+      speciesId: id,
       page: page ?? DEFAULT_OBSERVATIONS_PAGE,
       perPage: perPage ?? DEFAULT_OBSERVATIONS_PER_PAGE,
     });
@@ -62,9 +70,9 @@ export class SpeciesController {
       throw new BadRequestException(INVALID_OBSERVATIONS_REQUEST_MESSAGE);
     }
 
-    const { externalTaxonId, ...pagination } = parsedRequest.data;
+    const { speciesId, ...pagination } = parsedRequest.data;
     const observationPage = await this.speciesService.getObservations(
-      externalTaxonId,
+      speciesId,
       pagination,
     );
 
