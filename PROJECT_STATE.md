@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 4 · Persistence, synchronization, and PostGIS
 >
-> **Last completed step:** 24 · Persist normalized observations
+> **Last completed step:** 25 · Add on-demand synchronization policy
 >
-> **Current step:** 25 · Add on-demand synchronization policy
+> **Current step:** 26 · Query observations by bounding box with PostGIS
 >
-> **Next step:** 26 · Query observations by bounding box with PostGIS
+> **Next step:** 27 · Return observations as GeoJSON
 
 ## What currently works
 
@@ -49,7 +49,9 @@
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
 - Species search atomically upserts each normalized species and its provider mapping, then includes the internal string ID in the response. Repeated searches update mutable descriptive fields without creating duplicates.
-- `GET /api/species/:id/observations?page=...&perPage=...` accepts the application-owned species ID, resolves its iNaturalist mapping, fetches and normalizes a live page, atomically persists the batch, and returns privacy-aware observation DTOs.
+- `GET /api/species/:id/observations?page=...&perPage=...` accepts the application-owned species ID and uses an exact-page read-through cache in PostgreSQL. Fresh pages avoid iNaturalist; missing or stale pages are normalized and atomically replaced after a provider request.
+- Observation responses expose runtime metadata identifying a local-database hit or provider synchronization, the freshness state, and the last successful synchronization timestamp.
+- When refresh of a stale page fails with a controlled provider error, the endpoint returns the stale persisted page; a missing page still returns the provider error.
 - iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
 - `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
@@ -119,7 +121,10 @@
 - Date-only observations retain their date without receiving an invented timestamp, preserving the provider's temporal precision.
 - Observation dates and timestamps remain independent persisted facts: neither value is synthesized from the other, and either may be absent when the provider omits it.
 - Missing public coordinates are persisted as `NULL`; they are not reconstructed, replaced, or inferred from other provider data.
-- Observation pages are written in one transaction with a single batch upsert. `(provider, external_id)` provides idempotency, and an invalid row rolls back the whole batch.
+- Observation page synchronization atomically upserts normalized observations, replaces exact-page membership and order, and records freshness only when the complete transaction succeeds. `(provider, external_id)` remains the observation deduplication key.
+- Exact observation page snapshots are keyed by species, provider, page, and page size. Their freshness and provider total are independent of observation record timestamps, and empty pages can be cached.
+- The observation freshness window defaults to one hour and is configurable with `OBSERVATION_FRESHNESS_WINDOW_SECONDS` between 60 seconds and seven days.
+- Persisted normalized privacy and precision values preserve the distinction between open, obscured, private, and unknown locations across provider responses and cache hits.
 - PostGIS points are constructed in WGS84 axis order as `(longitude, latitude)`.
 - Blank species queries fail before any provider request. Nonblank queries are trimmed and encoded with `URLSearchParams` rather than interpolated into a URL.
 - Provider results are first mapped to `NormalizedSpecies`; persisted search results extend that model with the application-owned species ID represented as a string so PostgreSQL `bigint` values remain JSON-safe.
@@ -129,7 +134,7 @@
 - Species search HTTP validation reuses Zod rather than adding class-validator and class-transformer for one query field. Missing, blank, and repeated `q` parameters return `400 Bad Request` before the provider is called.
 - The species controller remains a transport boundary: it validates HTTP input, delegates to `SpeciesService`, and maps domain results to explicit response DTOs.
 - The `:id` observations path parameter is the application-owned species ID returned by species search. Provider identifiers are resolved only inside the application persistence boundary.
-- Live observation pagination defaults to page `1` with `50` records and accepts at most `200` records per page, matching the provider boundary without exposing its response contract.
+- Observation pagination defaults to page `1` with `50` records and accepts at most `200` records per page. Each `(page, perPage)` variant has independent freshness and synchronization state.
 
 ## Known limitations / blockers
 
@@ -137,6 +142,7 @@
 - The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
+- Observation synchronization does not coalesce concurrent cache misses; simultaneous requests for the same stale page can each call the provider. There is no background refresh or whole-species synchronization.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
 
@@ -313,7 +319,15 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm --filter api build`: passed.
 - Targeted Prettier formatting and `git diff --check`: passed.
 - Step 24 Definition of Done is satisfied: synchronizing the same observation range repeatedly updates the existing provider records without creating duplicates.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding on-demand synchronization.
+- `pnpm --filter api test`: passed all 77 API unit tests, including fresh cache hits, missing-page synchronization, the freshness boundary, stale-if-error fallback, and missing-cache provider failures.
+- `pnpm --filter api test:integration`: passed all 8 persistence tests against ephemeral PostgreSQL/PostGIS, including exact page ordering, private-location round trips, empty-page caching, pagination-key isolation, and rollback of freshness on failed replacement.
+- `pnpm --filter api build`: passed.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- `git diff --check`: passed.
+- Step 25 Definition of Done is satisfied: repeated requests for a sufficiently fresh exact observation page use PostgreSQL without contacting iNaturalist.
 
 ## Next implementation
 
-Discuss and approve **25 · Add on-demand synchronization policy** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **26 · Query observations by bounding box with PostGIS** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

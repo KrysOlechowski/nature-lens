@@ -1,10 +1,24 @@
 import type {
+  ObservationPageFreshness,
+  ObservationPageServedFrom,
   ObservationLocation,
   ObservationLocationPrecision,
   ObservationLocationPrivacy,
   SpeciesObservation,
   SpeciesObservationPage,
 } from "./species-observation.model.js";
+
+class SpeciesObservationPageMetadataDto {
+  readonly servedFrom: ObservationPageServedFrom;
+  readonly freshness: ObservationPageFreshness;
+  readonly lastSuccessfulSyncAt: string;
+
+  constructor(metadata: SpeciesObservationPage["metadata"]) {
+    this.servedFrom = metadata.servedFrom;
+    this.freshness = metadata.freshness;
+    this.lastSuccessfulSyncAt = metadata.lastSuccessfulSyncAt;
+  }
+}
 
 class ObservationLocationDto {
   readonly latitude: number;
@@ -55,6 +69,7 @@ export class SpeciesObservationPageDto {
   readonly page: number;
   readonly perPage: number;
   readonly results: SpeciesObservationDto[];
+  readonly metadata: SpeciesObservationPageMetadataDto;
 
   constructor(observationPage: SpeciesObservationPage) {
     this.totalResults = observationPage.totalResults;
@@ -62,6 +77,9 @@ export class SpeciesObservationPageDto {
     this.perPage = observationPage.perPage;
     this.results = observationPage.results.map(
       (observation) => new SpeciesObservationDto(observation),
+    );
+    this.metadata = new SpeciesObservationPageMetadataDto(
+      observationPage.metadata,
     );
   }
 }

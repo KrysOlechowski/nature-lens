@@ -93,7 +93,7 @@ describe("SpeciesController", () => {
     expect(searchSpecies).not.toHaveBeenCalled();
   });
 
-  it("returns a normalized page of live species observations", async () => {
+  it("returns a normalized page of species observations with sync metadata", async () => {
     const getObservations = vi.fn().mockResolvedValue({
       totalResults: 1,
       page: 2,
@@ -116,6 +116,11 @@ describe("SpeciesController", () => {
           },
         },
       ],
+      metadata: {
+        servedFrom: "local-database",
+        freshness: "fresh",
+        lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+      },
     });
     const speciesService = {
       getObservations,
@@ -146,6 +151,11 @@ describe("SpeciesController", () => {
           },
         },
       ],
+      metadata: {
+        servedFrom: "local-database",
+        freshness: "fresh",
+        lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+      },
     });
     expect(getObservations).toHaveBeenCalledWith("1696537", {
       page: 2,
@@ -153,12 +163,17 @@ describe("SpeciesController", () => {
     });
   });
 
-  it("uses bounded pagination defaults for live observations", async () => {
+  it("uses bounded pagination defaults for observations", async () => {
     const getObservations = vi.fn().mockResolvedValue({
       totalResults: 0,
       page: 1,
       perPage: 50,
       results: [],
+      metadata: {
+        servedFrom: "provider-sync",
+        freshness: "fresh",
+        lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+      },
     });
     const speciesService = {
       getObservations,

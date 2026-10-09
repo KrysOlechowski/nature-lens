@@ -23,9 +23,29 @@ export interface SpeciesObservation {
   };
 }
 
+export interface SpeciesObservationPageData {
+  totalResults: number;
+  page: number;
+  perPage: number;
+  results: SpeciesObservation[];
+}
+
+export interface StoredSpeciesObservationPage extends SpeciesObservationPageData {
+  lastSuccessfulSyncAt: string;
+}
+
+export type ObservationPageServedFrom = "local-database" | "provider-sync";
+
+export type ObservationPageFreshness = "fresh" | "stale";
+
 export interface SpeciesObservationPage {
   totalResults: number;
   page: number;
   perPage: number;
   results: SpeciesObservation[];
+  metadata: {
+    servedFrom: ObservationPageServedFrom;
+    freshness: ObservationPageFreshness;
+    lastSuccessfulSyncAt: string;
+  };
 }

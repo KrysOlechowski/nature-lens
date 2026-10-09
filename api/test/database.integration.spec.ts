@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import {
   afterAll,
   afterEach,
@@ -73,6 +73,12 @@ function createObservation(
 
 function createTransactionDatabase(client: PoolClient): DatabaseService {
   return {
+    query<ResultRow extends QueryResultRow>(
+      text: string,
+      values: unknown[] = [],
+    ): Promise<QueryResult<ResultRow>> {
+      return client.query<ResultRow>(text, values);
+    },
     async withTransaction<Result>(
       operation: (transactionClient: PoolClient) => Promise<Result>,
     ): Promise<Result> {
@@ -146,6 +152,8 @@ describe("database persistence", () => {
           location,
           positional_accuracy_meters,
           location_obscured,
+          location_privacy,
+          location_precision,
           source_url
         )
         VALUES (
@@ -156,7 +164,9 @@ describe("database persistence", () => {
           extensions.ST_SetSRID(extensions.ST_MakePoint($5, $6), 4326),
           $7,
           $8,
-          $9
+          $9,
+          $10,
+          $11
         )
       `,
       [
@@ -168,6 +178,8 @@ describe("database persistence", () => {
         52.2297,
         25,
         true,
+        "obscured",
+        "limited",
         "https://example.com/observations/1",
       ],
     );
@@ -338,6 +350,141 @@ describe("database persistence", () => {
         srid: null,
       },
     ]);
+  });
+
+  it("persists and reads exact observation page snapshots in provider order", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+    const privateObservation = createObservation({
+      observedOn: null,
+      observedAt: null,
+      location: null,
+      locationPrivacy: "private",
+      source: {
+        provider: "iNaturalist",
+        externalId: "405566288",
+        url: "https://www.inaturalist.org/observations/405566288",
+      },
+    });
+    const openObservation = createObservation({
+      location: {
+        latitude: 52.2297,
+        longitude: 21.0122,
+        accuracyMeters: 10,
+        precision: "approximate",
+      },
+      locationPrivacy: "open",
+    });
+
+    await observationRepository.replacePage(speciesId, "iNaturalist", {
+      totalResults: 42,
+      page: 2,
+      perPage: 20,
+      results: [privateObservation, openObservation],
+    });
+
+    const storedPage = await observationRepository.findPage(
+      speciesId,
+      "iNaturalist",
+      { page: 2, perPage: 20 },
+    );
+
+    expect(storedPage).toEqual({
+      totalResults: 42,
+      page: 2,
+      perPage: 20,
+      lastSuccessfulSyncAt: expect.any(String),
+      results: [privateObservation, openObservation],
+    });
+  });
+
+  it("keeps empty pages and pagination variants as separate snapshots", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+
+    await observationRepository.replacePage(speciesId, "iNaturalist", {
+      totalResults: 0,
+      page: 1,
+      perPage: 20,
+      results: [],
+    });
+
+    await expect(
+      observationRepository.findPage(speciesId, "iNaturalist", {
+        page: 1,
+        perPage: 20,
+      }),
+    ).resolves.toMatchObject({
+      totalResults: 0,
+      page: 1,
+      perPage: 20,
+      results: [],
+    });
+    await expect(
+      observationRepository.findPage(speciesId, "iNaturalist", {
+        page: 1,
+        perPage: 50,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      observationRepository.findPage(speciesId, "iNaturalist", {
+        page: 2,
+        perPage: 20,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("rolls back observations and freshness when a page replacement fails", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+
+    await observationRepository.replacePage(speciesId, "iNaturalist", {
+      totalResults: 1,
+      page: 1,
+      perPage: 50,
+      results: [createObservation()],
+    });
+    const originalPage = await observationRepository.findPage(
+      speciesId,
+      "iNaturalist",
+      { page: 1, perPage: 50 },
+    );
+
+    await expect(
+      observationRepository.replacePage(speciesId, "iNaturalist", {
+        totalResults: 2,
+        page: 1,
+        perPage: 50,
+        results: [
+          createObservation({
+            source: {
+              provider: "iNaturalist",
+              externalId: "",
+              url: "https://www.inaturalist.org/observations/invalid",
+            },
+          }),
+        ],
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      observationRepository.findPage(speciesId, "iNaturalist", {
+        page: 1,
+        perPage: 50,
+      }),
+    ).resolves.toEqual(originalPage);
   });
 
   it("rolls back the whole observation batch when one record is invalid", async () => {

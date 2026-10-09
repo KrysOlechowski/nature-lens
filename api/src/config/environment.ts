@@ -18,6 +18,12 @@ const environmentSchema = z.object({
     .min(1)
     .max(60_000)
     .default(10_000),
+  OBSERVATION_FRESHNESS_WINDOW_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(604_800)
+    .default(3_600),
 });
 
 const parsedEnvironment = environmentSchema.safeParse(process.env);
