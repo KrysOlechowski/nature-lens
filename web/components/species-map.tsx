@@ -1,5 +1,6 @@
 "use client";
 
+import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
   type GeoJSONSource,
@@ -18,6 +19,7 @@ import {
   observationGeoJsonSchema,
   type SpeciesObservationGeoJson,
 } from "@/app/species-observation-geojson";
+import { Button } from "@/components/ui/button";
 import { polandBoundingBox } from "@/lib/poland-bounds";
 
 setWorkerUrl(
@@ -38,10 +40,6 @@ const observationClusterCountLayerId = "species-observation-cluster-count";
 const unclusteredObservationsLayerId = "species-observation-points";
 const minimumObservationFetchZoom = 7;
 const observationFetchDebounceMs = 300;
-const emptyObservationFeatureCollection = {
-  type: "FeatureCollection" as const,
-  features: [],
-};
 
 const renderedObservationPropertiesSchema = observationGeoJsonPropertiesSchema
   .omit({ source: true })
@@ -194,9 +192,11 @@ function createObservationPopupContent(
 interface SpeciesMapProps {
   apiBaseUrl: string;
   mapStyleUrl: string;
-  observations?: SpeciesObservationGeoJson;
+  observations: SpeciesObservationGeoJson;
   speciesId: string;
 }
+
+type ViewportRequestStatus = "idle" | "loading" | "error";
 
 export function SpeciesMap({
   apiBaseUrl,
@@ -206,9 +206,15 @@ export function SpeciesMap({
 }: SpeciesMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const retryViewportRequestRef = useRef<(() => void) | null>(null);
   const [isDataTruncated, setIsDataTruncated] = useState(
-    observations?.metadata.truncated ?? false,
+    observations.metadata.truncated,
   );
+  const [displayedObservationCount, setDisplayedObservationCount] = useState(
+    observations.features.length,
+  );
+  const [viewportRequestStatus, setViewportRequestStatus] =
+    useState<ViewportRequestStatus>("idle");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -230,23 +236,20 @@ export function SpeciesMap({
     let observationFetchTimeout: ReturnType<typeof setTimeout> | undefined;
     let activeObservationRequest: AbortController | null = null;
     let latestObservationRequestId = 0;
-    const initialObservations =
-      observations ?? emptyObservationFeatureCollection;
+    const initialObservations = observations;
     const observationPopup = new Popup({
       closeButton: true,
       closeOnClick: true,
       maxWidth: "20rem",
     });
 
-    const setObservationData = (
-      data:
-        SpeciesObservationGeoJson | typeof emptyObservationFeatureCollection,
-    ) => {
+    const setObservationData = (data: SpeciesObservationGeoJson) => {
       observationPopup.remove();
       map
         .getSource<GeoJSONSource>(observationsSourceId)
         ?.setData(toRenderedObservationData(data));
-      setIsDataTruncated("metadata" in data ? data.metadata.truncated : false);
+      setDisplayedObservationCount(data.features.length);
+      setIsDataTruncated(data.metadata.truncated);
     };
 
     const invalidateObservationRequest = () => {
@@ -265,6 +268,12 @@ export function SpeciesMap({
     const fetchObservationsForCurrentBounds = async (requestId: number) => {
       const requestController = new AbortController();
       activeObservationRequest = requestController;
+
+      const isCurrentRequest = () =>
+        !requestController.signal.aborted &&
+        requestId === latestObservationRequestId &&
+        mapRef.current === map &&
+        map.getZoom() >= minimumObservationFetchZoom;
 
       try {
         const bounds = map.getBounds();
@@ -290,6 +299,10 @@ export function SpeciesMap({
         });
 
         if (!response.ok) {
+          if (isCurrentRequest()) {
+            setViewportRequestStatus("error");
+          }
+
           return;
         }
 
@@ -297,23 +310,24 @@ export function SpeciesMap({
           await response.json(),
         );
 
-        if (
-          !nextObservations.success ||
-          requestController.signal.aborted ||
-          requestId !== latestObservationRequestId ||
-          mapRef.current !== map ||
-          map.getZoom() < minimumObservationFetchZoom
-        ) {
+        if (!nextObservations.success || !isCurrentRequest()) {
+          if (!nextObservations.success && isCurrentRequest()) {
+            setViewportRequestStatus("error");
+          }
+
           return;
         }
 
         setObservationData(nextObservations.data);
+        setViewportRequestStatus("idle");
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
 
-        // Loading and unavailable states are introduced in a later step.
+        if (isCurrentRequest()) {
+          setViewportRequestStatus("error");
+        }
       } finally {
         if (activeObservationRequest === requestController) {
           activeObservationRequest = null;
@@ -326,14 +340,31 @@ export function SpeciesMap({
 
       if (map.getZoom() < minimumObservationFetchZoom) {
         setObservationData(initialObservations);
+        setViewportRequestStatus("idle");
         return;
       }
 
+      setViewportRequestStatus("loading");
       observationFetchTimeout = setTimeout(() => {
         observationFetchTimeout = undefined;
         void fetchObservationsForCurrentBounds(requestId);
       }, observationFetchDebounceMs);
     };
+
+    const retryViewportRequest = () => {
+      const requestId = invalidateObservationRequest();
+
+      if (map.getZoom() < minimumObservationFetchZoom) {
+        setObservationData(initialObservations);
+        setViewportRequestStatus("idle");
+        return;
+      }
+
+      setViewportRequestStatus("loading");
+      void fetchObservationsForCurrentBounds(requestId);
+    };
+
+    retryViewportRequestRef.current = retryViewportRequest;
 
     const handleClusterClick = async (event: MapLayerMouseEvent) => {
       const cluster = event.features?.[0];
@@ -449,11 +480,9 @@ export function SpeciesMap({
           "circle-stroke-width": 1.5,
         },
       });
-      setIsDataTruncated(
-        "metadata" in initialObservations
-          ? initialObservations.metadata.truncated
-          : false,
-      );
+      setIsDataTruncated(initialObservations.metadata.truncated);
+      setDisplayedObservationCount(initialObservations.features.length);
+      setViewportRequestStatus("idle");
       map.on("click", observationClustersLayerId, handleClusterClick);
       map.on("click", unclusteredObservationsLayerId, handleObservationClick);
       map.on("mouseenter", observationClustersLayerId, showPointerCursor);
@@ -481,6 +510,7 @@ export function SpeciesMap({
 
     return () => {
       invalidateObservationRequest();
+      retryViewportRequestRef.current = null;
       observationPopup.remove();
       map.off("load", handleLoad);
       map.off("moveend", handleMoveEnd);
@@ -495,6 +525,10 @@ export function SpeciesMap({
     };
   }, [apiBaseUrl, mapStyleUrl, observations, speciesId]);
 
+  const retryViewportRequest = () => {
+    retryViewportRequestRef.current?.();
+  };
+
   return (
     <div className="relative">
       <div
@@ -503,16 +537,55 @@ export function SpeciesMap({
         ref={containerRef}
         role="region"
       />
-      {isDataTruncated ? (
-        <p
-          className="absolute top-3 left-3 z-10 max-w-72 rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-950 shadow-sm backdrop-blur-sm"
-          role="status"
-        >
-          This view contains more locally synchronized observations than can be
-          shown. Cluster counts include only the displayed subset. Zoom in to
-          see a smaller area.
-        </p>
-      ) : null}
+      <div className="pointer-events-none absolute top-3 left-3 z-10 grid max-w-80 gap-2">
+        {viewportRequestStatus === "error" ? (
+          <div
+            className="pointer-events-auto rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-950 shadow-sm backdrop-blur-sm"
+            role="alert"
+          >
+            <p>
+              We could not refresh observations for this area. The map is
+              showing the last successfully loaded data.
+            </p>
+            <Button
+              className="mt-2"
+              onClick={retryViewportRequest}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCw aria-hidden="true" />
+              Retry this area
+            </Button>
+          </div>
+        ) : viewportRequestStatus === "loading" ? (
+          <p
+            className="rounded-lg border border-stone-200 bg-white/95 px-3 py-2 text-xs leading-relaxed text-stone-700 shadow-sm backdrop-blur-sm"
+            role="status"
+          >
+            Loading observations for this area. The map remains available with
+            the last loaded data.
+          </p>
+        ) : displayedObservationCount === 0 ? (
+          <p
+            className="rounded-lg border border-stone-200 bg-white/95 px-3 py-2 text-xs leading-relaxed text-stone-700 shadow-sm backdrop-blur-sm"
+            role="status"
+          >
+            No locally synchronized observations were found in this area.
+          </p>
+        ) : null}
+
+        {isDataTruncated ? (
+          <p
+            className="rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-950 shadow-sm backdrop-blur-sm"
+            role="status"
+          >
+            This view contains more locally synchronized observations than can
+            be shown. Cluster counts include only the displayed subset. Zoom in
+            to see a smaller area.
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }
