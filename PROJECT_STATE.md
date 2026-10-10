@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend with URL-backed species search, server-rendered species detail pages, and a debounced, race-safe viewport-driven MapLibre observation map of Poland, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend with URL-backed species search, server-rendered species detail pages, and a clustered, debounced, race-safe viewport-driven MapLibre observation map of Poland with observation details, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 5 · First working frontend product
 >
-> **Last completed step:** 34 · Add request debounce and stale-request protection
+> **Last completed step:** 35 · Add observation clustering and popup details
 >
-> **Current step:** 35 · Add observation clustering and popup details
+> **Current step:** 36 · Add progressive loading and section-level errors
 >
-> **Next step:** 36 · Add progressive loading and section-level errors
+> **Next step:** 37 · Add GBIF occurrence adapter
 
 ## What currently works
 
@@ -24,7 +24,8 @@
 - A nonempty query is sent server-side to `GET /api/species/search?q=...` with caching disabled. The frontend validates the complete public Nature Lens species-search DTO with Zod and does not depend on provider-specific contracts.
 - Species search renders semantic result lists with common names when available, scientific names, and taxonomic ranks, together with non-fatal empty and unavailable states.
 - Search results link to stable `/species/[id]` URLs. The dynamic Server Component validates the application-owned species ID, fetches and validates the public detail DTO from the Nature Lens API, and distinguishes not-found resources from temporary API failures.
-- Species detail pages display persisted application-owned names and taxonomy, with dedicated navigation back to species search and a responsive interactive MapLibre map fitted to Poland that renders locally synchronized observations as points and refreshes them for the current viewport after map movement settles at zoom 7 or closer.
+- Species detail pages display persisted application-owned names and taxonomy, with dedicated navigation back to species search and a responsive interactive MapLibre map fitted to Poland that clusters locally synchronized observations, expands clusters on click, exposes validated observation details in safe DOM popups, and refreshes for the current viewport after map movement settles at zoom 7 or closer.
+- When a spatial response is truncated, the map states that its clusters and counts represent only the displayed subset and asks the user to zoom in; observation popups derive limited or approximate location notices only from normalized privacy and precision fields.
 - The species detail route bootstraps the first observation page through the Nature Lens API, then fetches and runtime-validates the bounded public GeoJSON response without treating the bootstrap page as complete species coverage.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
@@ -76,7 +77,9 @@
 - Applications live directly in `web/` and `api/`, without an `apps/` directory.
 - Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
 - `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both remain Server Components, and the search uses native form behavior without a custom client component.
-- The species detail route remains a Server Component. MapLibre is isolated in one Client Component whose effect owns exactly one map instance, adds the validated observation FeatureCollection as a GeoJSON source with a circle layer, updates that source with `setData`, and removes the map during cleanup, including cleanup after partial setup failure.
+- The species detail route remains a Server Component. MapLibre is isolated in one Client Component whose effect owns exactly one map instance, adds the validated observation FeatureCollection as a clustered GeoJSON source with cluster-count and individual-point layers, updates that source with `setData`, and removes the map during cleanup, including cleanup after partial setup failure.
+- Data passed into MapLibre is flattened to vector-tile-safe scalar properties after public DTO validation. Clicked rendered features are validated again before their details are placed into a popup with `setDOMContent`; provider values are never interpolated as HTML.
+- Cluster `point_count` values describe only features received by the frontend. The current response's `metadata.truncated` value is retained outside MapLibre and drives an explicit incomplete-view notice instead of implying complete local coverage; backend/PostGIS clustering remains deferred.
 - MapLibre GL JS uses its current ESM worker entry with `setWorkerUrl(new URL(..., import.meta.url))`, allowing Next.js 16 to emit a same-origin hashed worker asset under both Turbopack and webpack.
 - `NEXT_PUBLIC_MAP_STYLE_URL` is optional public configuration and defaults to the token-free OpenFreeMap Liberty style. The map uses provider attribution, fits Poland's bounding box, and initially requests locally synchronized observations for that fixed extent.
 - The map bootstrap requests page 1 with 200 observations through the existing Nature Lens API endpoint. The API's freshness policy decides whether provider synchronization is necessary; the page is only a bootstrap for the local dataset and is not a completeness guarantee.
