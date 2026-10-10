@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend with a shadcn/ui component foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend with a URL-backed species search experience and shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 5 · First working frontend product
 >
-> **Last completed step:** 28 · Initialize shadcn/ui foundation
+> **Last completed step:** 29 · Build species search UI
 >
-> **Current step:** 29 · Build species search UI
+> **Current step:** 30 · Add species detail route
 >
-> **Next step:** 30 · Add species detail route
+> **Next step:** 31 · Add MapLibre base map
 
 ## What currently works
 
@@ -19,8 +19,10 @@
 - pnpm is pinned to `12.4.1` through `packageManager`; the lockfile is generated.
 - `web` runs Next.js 16 with App Router, React 19, TypeScript, and Tailwind CSS 4.
 - `web` has a copy-owned shadcn/ui foundation with Button, Input, and Card components, neutral CSS theme tokens, and a root-scoped `@/*` import alias.
-- `/` renders a minimal English Nature Lens welcome page with responsive styling, English page metadata, `lang="en"`, and the current API connection status.
-- The Next.js Server Component fetches and validates `GET /api/health`; network, HTTP, and contract failures render a non-fatal unavailable state.
+- `/` renders a responsive English species search experience with English page metadata and `lang="en"`.
+- The native `GET` search form stores its trimmed `q` value in the URL and submits with standard browser keyboard behavior. A missing, repeated, empty, or whitespace-only query renders the initial state without making an API request.
+- A nonempty query is sent server-side to `GET /api/species/search?q=...` with caching disabled. The frontend validates the complete public Nature Lens species-search DTO with Zod and does not depend on provider-specific contracts.
+- Species search renders semantic result lists with common names when available, scientific names, and taxonomic ranks, together with non-fatal empty and unavailable states.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
 - The API validates its server-only database configuration, creates one bounded PostgreSQL connection pool per process, verifies the connection before startup, and closes the pool during application shutdown.
@@ -68,7 +70,7 @@
 - English is the project language for UI copy, messages, metadata, code comments, and documentation. The product remains focused on Poland.
 - Applications live directly in `web/` and `api/`, without an `apps/` directory.
 - Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
-- `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both are Server Components; no client interaction is needed yet.
+- `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both remain Server Components, and the search uses native form behavior without a custom client component.
 - Tailwind uses its PostCSS plugin. System fonts keep the page independent of external font downloads.
 - shadcn/ui uses the current `base-nova` preset backed by Base UI. Components live directly in `web/components/ui`; only Button, Input, and Card are installed for the next product step.
 - The shadcn/ui initializer's optional Geist font change is intentionally not retained; the established system-font decision remains in effect.
@@ -78,8 +80,9 @@
 - The health endpoint uses a thin controller and a dedicated response DTO. Its version field identifies the health response contract rather than the package release version.
 - Zod schemas are the only entry points from untyped environment variables into application code. The applications keep separate schemas rather than introducing a shared configuration package before one is needed.
 - `NEXT_PUBLIC_API_BASE_URL` is intentionally public and build-time configuration for browser code. It must never contain a secret.
-- The home page health check runs server-side with caching disabled, so it reflects the API state for each page request without requiring browser CORS configuration.
-- The frontend validates the health response at its network boundary and treats unexpected HTTP responses or payloads as API unavailability.
+- The species query URL parameter is the frontend search state. The input is deliberately uncontrolled because native `GET` submission, browser history, refresh, and shareable URLs satisfy the current interaction without additional client-side state.
+- The frontend validates the public Nature Lens species-search response at its network boundary. Network, HTTP, JSON, and public-contract failures become one non-fatal unavailable state without exposing provider-specific data.
+- Search results are deliberately not links yet; the species detail route and navigation belong to step 30.
 - `PORT` remains server-only runtime configuration. The API loads local values with `dotenv`, coerces the string to a number, and rejects values outside the valid TCP port range.
 - ESLint uses one root flat config scoped to each application; formatting rules are delegated to Prettier rather than duplicated in ESLint.
 - Shared developer tooling stays at the workspace root instead of introducing a publishable config package or custom configuration framework.
@@ -147,7 +150,7 @@
 
 ## Known limitations / blockers
 
-- The frontend only reports API health: the component foundation is present, but it does not use the available species search or observations endpoints yet, and no observation map exists yet.
+- The frontend supports species search but has no species detail route, observation retrieval UI, or observation map yet.
 - The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -194,14 +197,11 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm lint`: passed after adding the health endpoint.
 - Targeted Prettier check for the changed API source files: passed.
 - Runtime request to `GET /api/health`: returned `200 OK` with `{"status":"ok","version":"1"}`.
-- Runtime request to the production frontend with the API available rendered `Connected · contract v1`.
-- Runtime request to the production frontend with an unreachable API rendered `Unavailable` without failing the page.
 - `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web exec next build --webpack`: passed.
 - API startup checks rejected a missing `PORT` and a port above 65535 before NestJS started.
 - Next.js type generation rejected a missing API URL and a non-HTTP(S) API URL while loading its configuration.
 - `pnpm build`: launched both application builds, but the default frontend Turbopack build could not complete because the agent environment blocked its local CSS-processing port.
 - `git diff --check`: passed.
-- Step 07 Definition of Done is satisfied: Next.js fetches the NestJS health response without contacting an external provider and handles network failure gracefully.
 - Manual Supabase setup is complete: the development project exists and its connection string is stored locally outside Git.
 - `pnpm --filter api typecheck`: passed after adding PostgreSQL access.
 - `pnpm --filter api build`: passed.
@@ -357,7 +357,12 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - Direct PostCSS compilation of `web/app/globals.css` with the Tailwind CSS 4 plugin: passed.
 - `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web build`: the standard Next.js 16 Turbopack build was attempted twice but could not complete because the agent execution environment denied the local port required by CSS processing; no Webpack override was used.
 - Step 28 Definition of Done is satisfied: the application owns configured Button, Input, and Card components without bulk-installing the component registry.
+- `pnpm format:check` and `git diff --check`: passed.
+- `pnpm --filter web typecheck`: passed after generating Next.js route types.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm --filter web exec next build --webpack`: passed; `/` is server-rendered on demand because its search state comes from the URL.
+- Step 29 Definition of Done is satisfied: the species search UI uses `GET /api/species/search` for nonempty queries and renders the validated public response without implementing the detail route.
 
 ## Next implementation
 
-Discuss and approve **29 · Build species search UI** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **30 · Add species detail route** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
