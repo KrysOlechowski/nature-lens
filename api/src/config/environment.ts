@@ -5,6 +5,12 @@ config({ quiet: true });
 
 const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535),
+  WEB_ORIGIN: z
+    .url({ protocol: /^https?$/ })
+    .refine(
+      (value) => new URL(value).origin === value,
+      "WEB_ORIGIN must be an origin without a path",
+    ),
   DATABASE_URL: z
     .url()
     .refine(

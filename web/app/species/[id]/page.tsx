@@ -117,12 +117,14 @@ export default async function SpeciesPage({ params }: SpeciesPageProps) {
                 Explore the geographic context for observations of this species.
               </p>
               <SpeciesMap
+                apiBaseUrl={environment.NEXT_PUBLIC_API_BASE_URL}
                 mapStyleUrl={environment.NEXT_PUBLIC_MAP_STYLE_URL}
                 observations={
                   observationsResponse.status === "success"
                     ? observationsResponse.observations
                     : undefined
                 }
+                speciesId={id}
               />
             </section>
           </>

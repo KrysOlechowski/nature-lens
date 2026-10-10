@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend with URL-backed species search, server-rendered species detail pages, and a MapLibre observation map of Poland, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend with URL-backed species search, server-rendered species detail pages, and a viewport-driven MapLibre observation map of Poland, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 5 · First working frontend product
 >
-> **Last completed step:** 32 · Render observation GeoJSON on the map
+> **Last completed step:** 33 · Fetch observations by current map bbox
 >
-> **Current step:** 33 · Fetch observations by current map bbox
+> **Current step:** 34 · Add request debounce and stale-request protection
 >
-> **Next step:** 34 · Add request debounce and stale-request protection
+> **Next step:** 35 · Add observation clustering and popup details
 
 ## What currently works
 
@@ -24,7 +24,7 @@
 - A nonempty query is sent server-side to `GET /api/species/search?q=...` with caching disabled. The frontend validates the complete public Nature Lens species-search DTO with Zod and does not depend on provider-specific contracts.
 - Species search renders semantic result lists with common names when available, scientific names, and taxonomic ranks, together with non-fatal empty and unavailable states.
 - Search results link to stable `/species/[id]` URLs. The dynamic Server Component validates the application-owned species ID, fetches and validates the public detail DTO from the Nature Lens API, and distinguishes not-found resources from temporary API failures.
-- Species detail pages display persisted application-owned names and taxonomy, with dedicated navigation back to species search and a responsive interactive MapLibre map fitted to Poland that renders locally synchronized observations as points.
+- Species detail pages display persisted application-owned names and taxonomy, with dedicated navigation back to species search and a responsive interactive MapLibre map fitted to Poland that renders locally synchronized observations as points and refreshes them for the current viewport after map movement at zoom 7 or closer.
 - The species detail route bootstraps the first observation page through the Nature Lens API, then fetches and runtime-validates the bounded public GeoJSON response without treating the bootstrap page as complete species coverage.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
@@ -39,6 +39,7 @@
 - Persistence integration tests start an ephemeral PostgreSQL/PostGIS container, create an isolated database, and apply the repository migrations without using the development Supabase project.
 - Each database integration test receives one PostgreSQL client and runs inside a transaction that is rolled back afterward. The initial test persists and reads a species observation, including its WGS84 point.
 - `GET /api/health` returns a stable `200` response with status and API contract version fields.
+- The API permits credential-free browser `GET` requests only from the exact validated `WEB_ORIGIN`, enabling the interactive frontend map to call the public API without exposing unrestricted cross-origin access.
 - Provider modules can explicitly import a shared NestJS external HTTP module and inject one controlled JSON client with a configurable timeout, provider-aware logging, and categorized transport errors.
 - The external HTTP client returns untrusted JSON as `unknown`, omits query parameters from logs, and has unit coverage for success, HTTP failures, timeouts, network failures, and malformed JSON.
 - iNaturalist taxa search responses are runtime-validated at the provider boundary. The minimal contract requires a `results` array and each result's positive integer ID, scientific name, and rank, while accepting an omitted preferred common name.
@@ -75,11 +76,13 @@
 - Applications live directly in `web/` and `api/`, without an `apps/` directory.
 - Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
 - `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both remain Server Components, and the search uses native form behavior without a custom client component.
-- The species detail route remains a Server Component. MapLibre is isolated in one Client Component whose effect owns exactly one map instance, adds the validated observation FeatureCollection as a GeoJSON source with a circle layer, and removes the map during cleanup, including cleanup after partial setup failure.
+- The species detail route remains a Server Component. MapLibre is isolated in one Client Component whose effect owns exactly one map instance, adds the validated observation FeatureCollection as a GeoJSON source with a circle layer, updates that source with `setData`, and removes the map during cleanup, including cleanup after partial setup failure.
 - MapLibre GL JS uses its current ESM worker entry with `setWorkerUrl(new URL(..., import.meta.url))`, allowing Next.js 16 to emit a same-origin hashed worker asset under both Turbopack and webpack.
 - `NEXT_PUBLIC_MAP_STYLE_URL` is optional public configuration and defaults to the token-free OpenFreeMap Liberty style. The map uses provider attribution, fits Poland's bounding box, and initially requests locally synchronized observations for that fixed extent.
 - The map bootstrap requests page 1 with 200 observations through the existing Nature Lens API endpoint. The API's freshness policy decides whether provider synchronization is necessary; the page is only a bootstrap for the local dataset and is not a completeness guarantee.
 - Observation bootstrap failure does not prevent a spatial read of previously synchronized data. The validated GeoJSON retains `metadata.datasetScope` and `metadata.truncated` when passed to MapLibre.
+- Map movement triggers a browser request for the current viewport only at the named minimum zoom of 7, with the API result capped at 1,000 observations and runtime-validated before replacing the GeoJSON source. Below that zoom, the map restores its initial server-rendered Poland dataset without a request; a completed request also rechecks the zoom before updating the source.
+- Browser map requests use the public API base URL with NestJS CORS restricted to one required, server-configured `WEB_ORIGIN`, the `GET` method, and no credentials. A same-origin Next.js proxy is deferred because the current public read-only flow does not require its extra hop or session boundary.
 - Tailwind uses its PostCSS plugin. System fonts keep the page independent of external font downloads.
 - shadcn/ui uses the current `base-nova` preset backed by Base UI. Components live directly in `web/components/ui`; only Button, Input, and Card are installed for the next product step.
 - The shadcn/ui initializer's optional Geist font change is intentionally not retained; the established system-font decision remains in effect.
@@ -160,8 +163,8 @@
 
 ## Known limitations / blockers
 
-- The observation map initially reads one fixed Poland bounding box and does not yet refetch data when the viewport changes.
 - Observation loading and unavailable states are not yet exposed in the map UI.
+- Viewport observation requests are not yet debounced and do not protect against responses for older above-threshold bounding boxes arriving after newer ones.
 - The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -198,12 +201,14 @@ Run the development servers in separate terminals. The frontend uses http://loca
 
 ## Verification
 
+- `pnpm lint`: passed after adding viewport-driven observation fetching and CORS.
+- `pnpm format:check`: passed.
+- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 95 API unit tests.
+- `WEB_ORIGIN=http://localhost:3000 pnpm typecheck`: passed for `web` and `api`.
+- `pnpm build`: the API build passed; the standard Next.js Turbopack build reached MapLibre CSS processing but could not complete because the agent environment denied its required local port with `Operation not permitted`.
+- Step 33 Definition of Done is satisfied: map movement at zoom 7 or closer requests the current viewport bounding box, while wider views restore the initial Poland dataset without a new request.
 - `pnpm install --frozen-lockfile`: passed with the final lockfile.
 - `pnpm peers check`: passed with no peer dependency issues.
-- Targeted Prettier check for the step 32 frontend files: passed.
-- Targeted ESLint check for the step 32 frontend files: passed.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web typecheck`: passed after adding observation GeoJSON rendering.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web exec next build --webpack`: passed after adding observation GeoJSON rendering.
 - `pnpm lint`: passed for `web` and `api`.
 - `pnpm format:check`: passed.
 - `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 PORT=3001 pnpm typecheck`: passed for `web` and `api`.
@@ -394,4 +399,4 @@ Run the development servers in separate terminals. The frontend uses http://loca
 
 ## Next implementation
 
-Discuss and approve **32 · Render observation GeoJSON on the map** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **34 · Add request debounce and stale-request protection** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
