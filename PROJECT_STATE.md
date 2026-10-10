@@ -2,9 +2,9 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend with URL-backed species search, server-rendered species detail pages, and a progressively loaded, section-isolated, clustered, debounced, race-safe viewport-driven MapLibre observation map of Poland with observation details, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** the first complete iNaturalist-backed vertical slice works from species search through normalized persistence and a progressively loaded MapLibre observation map
 >
-> **Current phase:** Phase 5 · First working frontend product
+> **Current phase:** Phase 6 · GBIF, provenance, and first analyses
 >
 > **Last completed step:** 36 · Add progressive loading and section-level errors
 >
@@ -14,404 +14,106 @@
 
 ## What currently works
 
-- pnpm workspace recognizes the root package and the `web` and `api` packages.
-- Root and application package manifests are private.
-- pnpm is pinned to `12.4.1` through `packageManager`; the lockfile is generated.
-- `web` runs Next.js 16 with App Router, React 19, TypeScript, and Tailwind CSS 4.
-- `web` has a copy-owned shadcn/ui foundation with Button, Input, and Card components, neutral CSS theme tokens, and a root-scoped `@/*` import alias.
-- `/` renders a responsive English species search experience with English page metadata and `lang="en"`.
-- The native `GET` search form stores its trimmed `q` value in the URL and submits with standard browser keyboard behavior. A missing, repeated, empty, or whitespace-only query renders the initial state without making an API request.
-- A nonempty query is sent server-side to `GET /api/species/search?q=...` with caching disabled. The frontend validates the complete public Nature Lens species-search DTO with Zod and does not depend on provider-specific contracts.
-- Species search renders semantic result lists with common names when available, scientific names, and taxonomic ranks, together with non-fatal empty and unavailable states.
-- Search results link to stable `/species/[id]` URLs. The dynamic Server Component validates the application-owned species ID, fetches and validates the public detail DTO from the Nature Lens API, and distinguishes not-found resources from temporary API failures.
-- Species detail pages display persisted application-owned names and taxonomy before independently streaming the observation section. An observation bootstrap failure renders a section-level retry without replacing the species content, while a successful response renders a responsive interactive MapLibre map fitted to Poland that clusters locally synchronized observations, expands clusters on click, exposes validated observation details in safe DOM popups, and refreshes for the current viewport after map movement settles at zoom 7 or closer.
-- When a spatial response is truncated, the map states that its clusters and counts represent only the displayed subset and asks the user to zoom in; observation popups derive limited or approximate location notices only from normalized privacy and precision fields.
-- The species detail route bootstraps the first observation page through the Nature Lens API, then fetches and runtime-validates the bounded public GeoJSON response without treating the bootstrap page as complete species coverage.
-- Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
-- `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
-- The API validates its server-only database configuration, creates one bounded PostgreSQL connection pool per process, verifies the connection before startup, and closes the pool during application shutdown.
-- The development connection string is stored locally in the ignored `api/.env` file and uses the Supabase Session pooler for IPv4 compatibility.
-- Database schema changes are versioned as TypeScript migrations in `api/migrations` and can be applied explicitly from the repository root.
-- The first migration creates the dedicated `extensions` schema, enables PostGIS there, and records its application in the migration history.
-- The `species` table stores application-owned species identities, scientific and display names, basic taxonomy, and timestamps independently of external providers.
-- `species_provider_mappings` keeps provider-specific external IDs separate from the application-owned species model and supports lookups by internal species ID.
-- The `observations` table relates normalized biodiversity observations to species and stores provider-supplied date and optional timestamp independently, optional WGS84 point location, positional accuracy, obscured-location status, provider identity, external identifier, and source URL.
-- Observation queries are supported by a GiST location index, a B-tree species lookup index, and provider-scoped external-ID uniqueness.
-- Persistence integration tests start an ephemeral PostgreSQL/PostGIS container, create an isolated database, and apply the repository migrations without using the development Supabase project.
-- Each database integration test receives one PostgreSQL client and runs inside a transaction that is rolled back afterward. The initial test persists and reads a species observation, including its WGS84 point.
-- `GET /api/health` returns a stable `200` response with status and API contract version fields.
-- The API permits credential-free browser `GET` requests only from the exact validated `WEB_ORIGIN`, enabling the interactive frontend map to call the public API without exposing unrestricted cross-origin access.
-- Provider modules can explicitly import a shared NestJS external HTTP module and inject one controlled JSON client with a configurable timeout, provider-aware logging, and categorized transport errors.
-- The external HTTP client returns untrusted JSON as `unknown`, omits query parameters from logs, and has unit coverage for success, HTTP failures, timeouts, network failures, and malformed JSON.
-- iNaturalist taxa search responses are runtime-validated at the provider boundary. The minimal contract requires a `results` array and each result's positive integer ID, scientific name, and rank, while accepting an omitted preferred common name.
-- Invalid iNaturalist response contracts produce controlled integration errors at the validation boundary instead of exposing Zod errors or allowing untrusted data into application logic.
-- `INaturalistAdapter` searches the public iNaturalist taxa endpoint for active species with an English locale and a fixed limit of ten results, using the shared controlled HTTP client.
-- Validated iNaturalist taxa are mapped to a small camel-cased integration type containing only the external ID, scientific name, optional preferred common name, and rank; raw provider responses do not leave the adapter.
-- `INaturalistAdapter` retrieves explicit pages of observations for a selected taxon from the public iNaturalist observations endpoint, always restricted to Poland by place ID `7800`.
-- iNaturalist observation responses are runtime-validated for pagination, observation identity and dates, public point geometry, accuracy, location privacy metadata, and source URL before being mapped to a small integration type.
-- The observation integration type keeps provider and public positional accuracy separate and preserves geoprivacy, taxon geoprivacy, and obscurity metadata at the provider boundary.
-- `SpeciesService` maps iNaturalist observation pages into provider-independent Nature Lens observation models with preserved pagination, date precision, public location metadata, privacy status, and source provenance.
-- Observation normalization distinguishes open, obscured, and private locations; a missing point remains missing data and does not itself imply obscurity.
-- Normalized locations explicitly describe their precision as approximate, deliberately limited, or unknown, and restricted locations never fall back to a more precise non-public accuracy value.
-- `SpeciesService` maps iNaturalist integration results into provider-independent Nature Lens search models with normalized names, taxonomy, and source provenance.
-- Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
-- `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
-- `GET /api/species/:id` validates the application-owned identifier and returns an explicit public species DTO through `SpeciesService` and `SpeciesRepository`; a missing species returns `404 Not Found`.
-- Species search atomically upserts each normalized species and its provider mapping, then includes the internal string ID in the response. Repeated searches update mutable descriptive fields without creating duplicates.
-- `GET /api/species/:id/observations?page=...&perPage=...` accepts the application-owned species ID and uses an exact-page read-through cache in PostgreSQL. Fresh pages avoid iNaturalist; missing or stale pages are normalized and atomically replaced after a provider request.
-- `ObservationRepository` can query one species from local PostgreSQL by a WGS84 bounding box, excludes records without public coordinates, includes points on the boundary, orders results deterministically by recency, and enforces a maximum of 1,000 records.
-- `GET /api/species/:id/observations?bbox=west,south,east,north&limit=...` returns locally synchronized observations as a GeoJSON `FeatureCollection<Point>` with longitude-first coordinates, bounded properties, explicit local-dataset scope, and local-result truncation metadata.
-- Observation responses expose runtime metadata identifying a local-database hit or provider synchronization, the freshness state, and the last successful synchronization timestamp.
-- When refresh of a stale page fails with a controlled provider error, the endpoint returns the stale persisted page; a missing page still returns the provider error.
-- iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
-- Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
-- `web` validates its public API base URL and optional public map style URL when Next.js loads; the map style defaults to OpenFreeMap Liberty. `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
-- Root commands lint, typecheck, build, and format both applications consistently.
-- ESLint applies Next.js Core Web Vitals rules to `web` and recommended TypeScript and Node.js rules to `api`.
-- Prettier can check or update formatting across the repository with shared defaults and LF line endings.
-- `.gitignore` excludes dependencies, build output, local environment files, logs, and `.DS_Store`, while allowing environment examples.
+- The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
+- The English species search stores its trimmed query in the URL, calls the Nature Lens API only for nonempty queries, validates the complete public response with Zod, and renders non-fatal empty and unavailable states.
+- Search results use stable application-owned species IDs and link to server-rendered `/species/[id]` pages with distinct not-found and temporary-failure behavior.
+- Species detail pages render persisted names and taxonomy before independently streaming the observation section through a section-level Suspense boundary.
+- Initial observation failures remain inside the map section and provide retry; viewport loading, failed refreshes, successful empty results, and truncated results have distinct UI states.
+- The MapLibre map is fitted to Poland, clusters observations, expands clusters, renders validated details in safe DOM popups, and preserves privacy and precision notices.
+- At zoom 7 or closer, map movement requests a debounced, bounded viewport query. Newer movements abort and invalidate older requests, and failed refreshes preserve the last successfully loaded data.
+- The API exposes health, species search, application-owned species details, paginated observation synchronization, and bounded observation GeoJSON endpoints.
+- The API validates server-only configuration, creates one shared PostgreSQL pool, verifies the database connection before startup, and closes the pool during application shutdown.
+- Browser map requests use credential-free `GET` calls allowed only from the exact configured `WEB_ORIGIN`.
+- A controlled backend HTTP client provides JSON `GET`, configurable timeouts, provider-aware logging, and categorized transport failures.
+- The iNaturalist adapter searches active species and retrieves explicit observation pages restricted to Poland. Responses are runtime-validated before being mapped into small integration types.
+- `SpeciesService` returns provider-independent Nature Lens species and observation models, preserving source provenance, temporal precision, public coordinate accuracy, and provider privacy restrictions.
+- Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
+- Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior.
+- Local observations can be queried by a WGS84 bounding box and returned as a bounded GeoJSON `FeatureCollection<Point>` with explicit local-dataset and truncation metadata.
+- Unit tests cover transport, provider validation and mapping, normalization, application services, controllers, persistence behavior, and provider-error translation. Integration tests exercise repository migrations and PostgreSQL/PostGIS behavior in an ephemeral container.
+
+## Persistence snapshot
+
+- Database schema is versioned with `node-pg-migrate` TypeScript migrations in `api/migrations`; migrations run explicitly rather than during API startup.
+- Local development uses the Supabase Session pooler for IPv4 compatibility. Its connection string remains in the ignored `api/.env` file.
+- PostGIS is installed in the dedicated `extensions` schema, and spatial functions and operators are schema-qualified.
+- `species` stores application-owned identities. `species_provider_mappings` keeps provider-specific external IDs outside the core species model.
+- `observations` stores normalized dates, optional timestamps, optional WGS84 `geometry(Point, 4326)` locations, public accuracy and privacy information, provider provenance, and source URLs.
+- Observation-page synchronization tables preserve exact page membership, ordering, provider totals, and freshness independently of observation record timestamps.
+- Provider-scoped observation identifiers are unique. Species lookups use a B-tree index, and public-location viewport queries use a GiST index.
+- Missing public coordinates remain `NULL`; coordinates are never reconstructed from restricted or non-public provider data.
 
 ## Important current decisions
 
-- English is the project language for UI copy, messages, metadata, code comments, and documentation. The product remains focused on Poland.
-- Applications live directly in `web/` and `api/`, without an `apps/` directory.
-- Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
-- `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both remain Server Components, and the search uses native form behavior without a custom client component.
-- The species detail route remains a Server Component. MapLibre is isolated in one Client Component whose effect owns exactly one map instance, adds the validated observation FeatureCollection as a clustered GeoJSON source with cluster-count and individual-point layers, updates that source with `setData`, and removes the map during cleanup, including cleanup after partial setup failure.
-- Data passed into MapLibre is flattened to vector-tile-safe scalar properties after public DTO validation. Clicked rendered features are validated again before their details are placed into a popup with `setDOMContent`; provider values are never interpolated as HTML.
-- Cluster `point_count` values describe only features received by the frontend. The current response's `metadata.truncated` value is retained outside MapLibre and drives an explicit incomplete-view notice instead of implying complete local coverage; backend/PostGIS clustering remains deferred.
-- MapLibre GL JS uses its current ESM worker entry with `setWorkerUrl(new URL(..., import.meta.url))`, allowing Next.js 16 to emit a same-origin hashed worker asset under both Turbopack and webpack.
-- `NEXT_PUBLIC_MAP_STYLE_URL` is optional public configuration and defaults to the token-free OpenFreeMap Liberty style. The map uses provider attribution, fits Poland's bounding box, and initially requests locally synchronized observations for that fixed extent.
-- The map bootstrap requests page 1 with 200 observations through the existing Nature Lens API endpoint. The API's freshness policy decides whether provider synchronization is necessary; the page is only a bootstrap for the local dataset and is not a completeness guarantee.
-- Observation bootstrap failure does not prevent a spatial read of previously synchronized data. The validated GeoJSON retains `metadata.datasetScope` and `metadata.truncated` when passed to MapLibre.
-- Map movement triggers a browser request for the current viewport only at the named minimum zoom of 7, with the API result capped at 1,000 observations and runtime-validated before replacing the GeoJSON source. Requests are debounced for 300 ms after `moveend`; each newer movement, a move below the threshold, and component cleanup immediately abort and invalidate older work so stale responses cannot overwrite the current map state. Below the threshold, the map restores its initial server-rendered Poland dataset without a request.
-- The initial observation request is isolated behind a section-level Suspense boundary. Its retry uses `router.refresh()` from a small Client Component so the current route can rerun its Server Components without introducing a second client-side bootstrap data path.
-- Viewport refreshes keep the map and last successfully loaded observations visible. Loading, failed-refresh, and successful-empty states are distinct; a failed refresh provides an in-map retry and never presents stale data as a successful empty result.
-- Browser map requests use the public API base URL with NestJS CORS restricted to one required, server-configured `WEB_ORIGIN`, the `GET` method, and no credentials. A same-origin Next.js proxy is deferred because the current public read-only flow does not require its extra hop or session boundary.
-- Tailwind uses its PostCSS plugin. System fonts keep the page independent of external font downloads.
-- shadcn/ui uses the current `base-nova` preset backed by Base UI. Components live directly in `web/components/ui`; only Button, Input, and Card are installed for the next product step.
-- The shadcn/ui initializer's optional Geist font change is intentionally not retained; the established system-font decision remains in effect.
-- Root `dev:web` and `dev:api` start the applications separately; other scripts use `pnpm --filter web` or `pnpm --filter api`. Shared tooling remains in step 04.
-- Frontend `typecheck` runs Next.js type generation before TypeScript so it also works before the first build.
-- The API uses the default Express adapter, native ES modules, and strict TypeScript with decorator metadata. `main.ts` bootstraps the server; `AppModule` is the root module. No placeholder controllers, providers, or feature modules are introduced.
-- The health endpoint uses a thin controller and a dedicated response DTO. Its version field identifies the health response contract rather than the package release version.
-- Zod schemas are the only entry points from untyped environment variables into application code. The applications keep separate schemas rather than introducing a shared configuration package before one is needed.
-- `NEXT_PUBLIC_API_BASE_URL` is intentionally public and build-time configuration for browser code. It must never contain a secret.
-- The species query URL parameter is the frontend search state. The input is deliberately uncontrolled because native `GET` submission, browser history, refresh, and shareable URLs satisfy the current interaction without additional client-side state.
-- The frontend validates the public Nature Lens species-search response at its network boundary. Network, HTTP, JSON, and public-contract failures become one non-fatal unavailable state without exposing provider-specific data.
-- Species detail reads use the application-owned persisted species resource rather than carrying provider data or names in the route URL. The public detail DTO does not expose database row shapes or provider mappings.
-- Persisted `display_name` falls back to the scientific name when absent. Taxonomic rank remains optional because the existing schema permits missing taxonomy; the detail API does not invent unavailable data.
-- `PORT` remains server-only runtime configuration. The API loads local values with `dotenv`, coerces the string to a number, and rejects values outside the valid TCP port range.
-- ESLint uses one root flat config scoped to each application; formatting rules are delegated to Prettier rather than duplicated in ESLint.
-- Shared developer tooling stays at the workspace root instead of introducing a publishable config package or custom configuration framework.
-- The optional `unrs-resolver` install script is explicitly disabled; the installed prebuilt resolver works without approving it.
-- Next.js automatic agent-file generation is disabled; repository instructions remain in the root `AGENTS.md`.
-- The target remains Next.js → Nature Lens API (NestJS modular monolith) → provider adapters and PostgreSQL/PostGIS on Supabase.
-- The development database uses Supabase without the GitHub integration, automatic RLS event trigger, or dedicated IPv4 add-on; these can be introduced later if a concrete requirement justifies them.
-- PostgreSQL access uses the low-level `pg` driver so application code can use parameterized SQL and PostGIS directly without an ORM-specific persistence model.
-- `DatabaseService` owns one `pg.Pool` per API process. The pool defaults to at most five connections, can be configured with `DATABASE_POOL_MAX`, and is shared by modules that import `DatabaseModule`.
-- Database availability is required for the API to start; an initial `SELECT 1` fails fast when credentials or connectivity are invalid.
-- `node-pg-migrate` manages schema evolution without introducing an ORM. Migrations run through explicit commands rather than during API startup.
-- PostGIS is installed in the dedicated `extensions` schema instead of `public`, keeping extension-owned objects outside the schema exposed by the Supabase Data API.
-- The PostGIS down migration uses `DROP EXTENSION` without `CASCADE`, so PostgreSQL refuses an unsafe rollback when dependent spatial objects exist. The shared `extensions` schema is intentionally preserved.
-- Species use an identity-backed internal `bigint` primary key. Scientific names are required and unique; using `scientific_name` as the upsert conflict key is an explicit single-provider simplification and is not a cross-provider identity-resolution strategy.
-- Species text constraints reject blank values while preserving `NULL` for genuinely unavailable optional data. Provider-specific identifiers do not belong to the core species table.
-- Species timestamps default to the insertion time. Repeated persistence writes preserve `created_at` and refresh `updated_at` together with `display_name` and `taxon_rank`; no database trigger is used.
-- A species and its `(provider, external_id)` mapping are written in one transaction. An existing mapping to the same species is idempotent, while a mapping to another species raises an invariant error and rolls back all species changes instead of being silently reassigned.
-- Observations use PostGIS `geometry(Point, 4326)` because the initial product needs map and bounding-box queries over WGS84 coordinates; distance calculations that could justify `geography` are not required yet.
-- Observation coordinates must be nonempty and stay within valid longitude and latitude ranges. Positional accuracy is optional, measured in meters, and must be finite and nonnegative when present.
-- Observation location obscurity uses a nullable boolean: `true` means obscured, `false` means explicitly unobscured, and `NULL` means the provider did not supply enough information. Unknown sensitivity metadata must never be interpreted as an unobscured location.
-- Observation provenance is stored as a nonblank provider, provider-scoped external identifier, and source URL. A unique constraint on `(provider, external_id)` prevents duplicate observations from the same provider while allowing different providers to use the same external ID.
-- The observation location GiST index supports bounding-box queries, while the `species_id` B-tree index supports species-observation lookups. No date index is introduced before a concrete date-filtering query exists.
-- Bounding-box reads use an explicit `OPERATOR(extensions.&&)` GiST prefilter followed by `extensions.ST_Intersects` against an SRID 4326 envelope. PostGIS operators and functions are schema-qualified because the extension is installed outside `public`.
-- Bounding-box results are ordered by observation date, timestamp, and descending internal ID, then capped at 1,000 returned records. The query reads one additional row after the same deterministic ordering to report whether the local result was truncated. Spatial clustering or sampling is deferred until map usage creates a concrete requirement.
-- GeoJSON bounding-box reads never contact a provider. The top-level `metadata.datasetScope` value `locally-synchronized` states that provider coverage may be incomplete, while `metadata.truncated` reports only whether the requested limit cut off additional matching local records.
-- Observation GeoJSON properties retain normalized dates, public-location accuracy and privacy context, and provider name plus source URL. Provider-specific payloads and external observation identifiers are not exposed.
-- Deleting a species referenced by observations is restricted so observation records cannot become detached from their normalized species identity.
-- The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
-- Database integration tests use Testcontainers with the `postgis/postgis:17-3.5-alpine` image. The image is explicitly run as `linux/amd64`, matching its published architecture and allowing Docker Desktop emulation on Apple silicon.
-- The test container owns an isolated database for the suite. Repository migrations run against it before tests, while each test receives one `PoolClient` and uses transaction rollback for isolation.
-- Integration tests detect the Docker Desktop user socket when `DOCKER_HOST` is not already configured; explicit environment configuration continues to take precedence.
-- Install scripts pulled in through Testcontainers (`cpu-features`, `protobufjs`, and `ssh2`) remain explicitly disabled; the suite uses their packaged JavaScript and the local Docker socket without those scripts.
-- External HTTP uses the native Node.js `fetch` implementation instead of adding Axios. `ExternalHttpModule` is deliberately not global: each provider module must declare its transport dependency explicitly.
-- External HTTP requests currently support only JSON `GET`, matching the first iNaturalist use case. They use a shared timeout that defaults to 10 seconds and can be configured with `EXTERNAL_HTTP_TIMEOUT_MS`; retry policy remains a later concern.
-- HTTP status, timeout, network, and malformed-JSON failures are categorized at the transport boundary. Provider response contract validation remains separate and consumes `unknown` data.
-- Provider adapters translate their controlled transport and integration failures into `ProviderError`; application services and the global HTTP filter do not depend on fetch, Zod, or provider-specific error classes.
-- The provider error taxonomy distinguishes timeout, rate limiting, unavailability, invalid responses, and unexpected upstream request rejection. Upstream `429` becomes a stable `503`, other upstream `4xx` become `502`, network and upstream `5xx` failures become `503`, and timeouts become `504`.
-- `ProviderExceptionFilter` catches only `ProviderError`. Unknown programming or application errors remain under NestJS's default exception handling instead of being misreported as provider failures.
-- The iNaturalist schemas model only fields required by the current species-search and observation adapters. Unused provider fields are discarded; they can be added when an application feature depends on them.
-- iNaturalist omits `preferred_common_name` when the requested locale has no common name, so the field is optional but does not accept `null`. Required application fields fail validation when missing rather than producing partial species results.
-- The iNaturalist integration lives in an explicit NestJS module that imports the non-global external HTTP module and exports only the adapter for future application services.
-- The first species search deliberately requests only active taxa at the `species` rank, limits each request to ten results, and requests English preferred common names to match the current UI language.
-- Observation retrieval uses caller-supplied positive page and page-size values, rejects page sizes above iNaturalist's limit of 200, and returns the provider's pagination metadata rather than automatically traversing an unbounded result set.
-- Poland is represented at the iNaturalist boundary by provider place ID `7800`; application code outside the adapter does not need to know that provider-specific filter.
-- The iNaturalist boundary retains both measurement and public positional accuracy plus all available privacy signals so the mapper can apply the safety policy explicitly.
-- Observation normalization uses only the public positional accuracy for obscured or private locations. If it is absent, the normalized accuracy remains unknown rather than falling back to the provider's potentially more precise value.
-- Location availability, privacy, and precision are separate concepts. Missing coordinates do not determine privacy; positive accuracy marks an open point as approximate, while provider privacy restrictions mark a public point as deliberately limited.
-- Date-only observations retain their date without receiving an invented timestamp, preserving the provider's temporal precision.
-- Observation dates and timestamps remain independent persisted facts: neither value is synthesized from the other, and either may be absent when the provider omits it.
-- Missing public coordinates are persisted as `NULL`; they are not reconstructed, replaced, or inferred from other provider data.
-- Observation page synchronization atomically upserts normalized observations, replaces exact-page membership and order, and records freshness only when the complete transaction succeeds. `(provider, external_id)` remains the observation deduplication key.
-- Exact observation page snapshots are keyed by species, provider, page, and page size. Their freshness and provider total are independent of observation record timestamps, and empty pages can be cached.
-- The observation freshness window defaults to one hour and is configurable with `OBSERVATION_FRESHNESS_WINDOW_SECONDS` between 60 seconds and seven days.
-- Persisted normalized privacy and precision values preserve the distinction between open, obscured, private, and unknown locations across provider responses and cache hits.
-- PostGIS points are constructed in WGS84 axis order as `(longitude, latitude)`.
-- Blank species queries fail before any provider request. Nonblank queries are trimmed and encoded with `URLSearchParams` rather than interpolated into a URL.
-- Provider results are first mapped to `NormalizedSpecies`; persisted search results extend that model with the application-owned species ID represented as a string so PostgreSQL `bigint` values remain JSON-safe.
-- Species normalization keeps an optional `commonName` separate from the resolved `displayName`; falling back to the scientific name therefore does not invent a common name.
-- Provider external IDs are normalized to strings and retained with the provider name so provenance survives beyond the integration boundary.
-- The iNaturalist-specific integration type is imported only by its mapper. `SpeciesService` returns Nature Lens models and does not depend on provider response contracts.
-- Species search HTTP validation reuses Zod rather than adding class-validator and class-transformer for one query field. Missing, blank, and repeated `q` parameters return `400 Bad Request` before the provider is called.
-- The species controller remains a transport boundary: it validates HTTP input, delegates to `SpeciesService`, and maps domain results to explicit response DTOs.
-- The `:id` observations path parameter is the application-owned species ID returned by species search. Provider identifiers are resolved only inside the application persistence boundary.
-- Observation pagination defaults to page `1` with `50` records and accepts at most `200` records per page. Each `(page, perPage)` variant has independent freshness and synchronization state.
+- English is used for project content and UI. The product remains focused on Poland and preserves provider names, scientific names, and source data.
+- The target architecture remains Next.js → Nature Lens API → provider adapters and PostgreSQL/PostGIS in a modular monolith.
+- The frontend depends on public Nature Lens DTOs, never raw provider payloads.
+- External JSON enters the application as `unknown`, is runtime-validated at the provider boundary, and is reduced to only the fields required by current product behavior.
+- Provider adapters own endpoint details, query parameters, provider-specific validation, transport translation, and mapping into small integration types.
+- Do not introduce a shared biodiversity-provider interface during step 37. Step 38 generalizes only after both iNaturalist and GBIF provide real evidence for the common contract.
+- Application services and normalized models remain provider-independent while retaining provider name, external ID, and source URL.
+- Species use internal `bigint` identities represented as strings in public JSON. Provider mappings are written transactionally and cannot be silently reassigned to another species.
+- Using `scientific_name` as the species upsert conflict key is an explicit single-provider simplification, not the final cross-provider identity-resolution strategy; step 39 addresses that problem.
+- PostgreSQL access uses the low-level `pg` driver so persistence and PostGIS queries remain explicit; no generic repository abstraction or ORM is introduced.
+- Observation identity is provider-scoped. Cross-provider deduplication is intentionally deferred until provenance and identity behavior are implemented.
+- Location availability, privacy, and precision are separate concepts. Missing coordinates do not imply obscurity, and restricted locations never fall back to more precise non-public accuracy.
+- Observation dates and timestamps remain independent so date-only provider data does not receive invented temporal precision.
+- WGS84 points use longitude-first coordinate order. Spatial reads are species-scoped, include bounding-box boundaries, use deterministic recency ordering, and return at most 1,000 records.
+- Bounding-box reads never contact providers. Their `locally-synchronized` dataset scope must not be presented as complete provider coverage.
+- Observation page synchronization atomically upserts normalized observations and replaces exact-page membership. Fresh pages avoid the provider; stale pages may fall back to persisted data after a controlled provider failure.
+- The observation freshness window defaults to one hour and is configurable with `OBSERVATION_FRESHNESS_WINDOW_SECONDS`.
+- External HTTP currently supports only the JSON `GET` behavior required by implemented providers. Retries remain deferred until provider-specific evidence justifies them.
+- MapLibre remains isolated in a Client Component. Provider data is flattened to safe scalar properties, rendered features are validated again, and popup content is built with DOM APIs rather than HTML interpolation.
+- Initial observation retry uses `router.refresh()` from a small Client Component. Viewport retry remains local to the map and preserves the last successful dataset.
+- `NEXT_PUBLIC_API_BASE_URL` is public build-time configuration and must not contain secrets. The optional map style URL defaults to OpenFreeMap Liberty.
+- No microservices, Redis, queues, GraphQL, background synchronization, or advanced GIS infrastructure are introduced without a concrete requirement.
 
 ## Known limitations / blockers
 
-- The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
-- Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
-- CI and deployment are not configured yet.
-- Observation synchronization does not coalesce concurrent cache misses; simultaneous requests for the same stale page can each call the provider. There is no background refresh or whole-species synchronization.
-- Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and must not be interpreted as a complete provider dataset.
-- Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
-- The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
+- HTTP-level integration tests and end-to-end browser tests are not configured yet.
+- Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
+- CI and production deployment are not configured.
+- Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider.
+- Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
+- Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
+- The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
 
 ## Development commands
 
-Run from the repository root with pnpm 12.4.1 available and a compatible Node.js version selected (see README):
+Run from the repository root with pnpm 12.4.1 and a compatible Node.js version:
 
 ```bash
 pnpm install
 cp web/.env.example web/.env.local
 cp api/.env.example api/.env
-pnpm lint
+
 pnpm format:check
-pnpm format
-pnpm test
+pnpm lint
 pnpm typecheck
-pnpm build
+pnpm test
 pnpm test:integration
+pnpm build
+
 pnpm db:migrate
 pnpm db:migrate:create migration-name
 pnpm db:migrate:down
+
 pnpm dev:web
-pnpm --filter web start
 pnpm dev:api
+pnpm --filter web start
 pnpm --filter api start
 ```
 
-Run the development servers in separate terminals. The frontend uses http://localhost:3000; the API uses http://localhost:3001. Run each application's `build` before its `start`.
+Run development servers in separate terminals. The frontend defaults to http://localhost:3000 and the API to http://localhost:3001. Build an application before starting its production server.
 
 ## Verification
 
-- `pnpm lint`: passed after adding progressive observation loading and section-level failures.
-- `pnpm format:check`: passed.
-- `pnpm typecheck`: passed for `web` and `api`.
-- `pnpm --filter web build`: reached MapLibre CSS processing but could not complete because the agent environment denied Turbopack permission to bind its required local port with `Operation not permitted`.
-- `git diff --check`: passed.
-- Step 36 Definition of Done is satisfied: an observation bootstrap failure remains inside the map section, while viewport loading and failed refreshes keep the map and last successful data visible.
-- `pnpm lint`: passed after adding viewport request debounce, cancellation, and stale-response protection.
-- `pnpm format:check`: passed.
-- `pnpm typecheck`: passed for `web` and `api`.
-- `pnpm build`: the API build passed; the standard Next.js Turbopack build reached MapLibre CSS processing but could not complete because the agent environment denied its required local port with `Operation not permitted`.
-- `git diff --check`: passed.
-- Step 34 Definition of Done is satisfied: every `moveend` immediately invalidates and aborts older work, and only the latest request can update the map after the 300 ms debounce.
-- `pnpm lint`: passed after adding viewport-driven observation fetching and CORS.
-- `pnpm format:check`: passed.
-- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 95 API unit tests.
-- `WEB_ORIGIN=http://localhost:3000 pnpm typecheck`: passed for `web` and `api`.
-- `pnpm build`: the API build passed; the standard Next.js Turbopack build reached MapLibre CSS processing but could not complete because the agent environment denied its required local port with `Operation not permitted`.
-- Step 33 Definition of Done is satisfied: map movement at zoom 7 or closer requests the current viewport bounding box, while wider views restore the initial Poland dataset without a new request.
-- `pnpm install --frozen-lockfile`: passed with the final lockfile.
-- `pnpm peers check`: passed with no peer dependency issues.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 PORT=3001 pnpm typecheck`: passed for `web` and `api`.
-- `pnpm --filter api build`: passed.
-- `pnpm --filter api typecheck`: passed after adding the health endpoint.
-- `pnpm lint`: passed after adding the health endpoint.
-- Targeted Prettier check for the changed API source files: passed.
-- Runtime request to `GET /api/health`: returned `200 OK` with `{"status":"ok","version":"1"}`.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web exec next build --webpack`: passed.
-- API startup checks rejected a missing `PORT` and a port above 65535 before NestJS started.
-- Next.js type generation rejected a missing API URL and a non-HTTP(S) API URL while loading its configuration.
-- `pnpm build`: launched both application builds, but the default frontend Turbopack build could not complete because the agent environment blocked its local CSS-processing port.
-- `git diff --check`: passed.
-- Manual Supabase setup is complete: the development project exists and its connection string is stored locally outside Git.
-- `pnpm --filter api typecheck`: passed after adding PostgreSQL access.
-- `pnpm --filter api build`: passed.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- Configuration startup check rejected a non-PostgreSQL `DATABASE_URL` before NestJS initialization.
-- API startup connected to the development Supabase database through the Session pooler and completed `SELECT 1`.
-- Runtime request to `GET /api/health` returned `200 OK` with `{"status":"ok","version":"1"}` while the database connection was active.
-- `pnpm peers check`: passed with no peer dependency issues.
-- `git check-ignore -v api/.env`: confirmed that the local connection string remains ignored by Git.
-- Step 08 Definition of Done is satisfied: the API connects to PostgreSQL and executes a connection check before accepting requests.
-- `pnpm --filter api typecheck`: passed for the API source and TypeScript migrations.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `git diff --check`: passed.
-- Migration dry run generated `CREATE SCHEMA IF NOT EXISTS extensions`, `CREATE EXTENSION postgis SCHEMA extensions`, and the migration-history insert without modifying the database.
-- `pnpm db:migrate`: applied `20260921183645533_enable-postgis` to the development Supabase database.
-- A second `pnpm db:migrate` reported no pending migrations.
-- Database inspection confirmed PostGIS `3.3.7` in the `extensions` schema and the migration in `public.pgmigrations`; `extensions.postgis_version()` executed successfully.
-- Down-migration dry run generated restrictive `DROP EXTENSION postgis` without `CASCADE` and removal of the migration-history entry.
-- Step 09 Definition of Done is satisfied: the database migration history is repository-owned, and applying the migrations enables a working PostGIS installation without manual dashboard setup.
-- `pnpm --filter api typecheck`: passed for the species migration.
-- Targeted Prettier check for the species migration: passed.
-- Migration dry run generated the `species` table with an identity primary key, required unique scientific name, optional taxonomy, nonblank text constraints, and timestamp defaults.
-- `pnpm db:migrate`: applied `20260922151205000_add-species-model` to the development Supabase database.
-- A second `pnpm db:migrate` reported no pending migrations.
-- Database inspection confirmed all species columns, identity and timestamp defaults, primary key, unique scientific name, nonblank text constraints, and migration-history entry.
-- Down-migration dry run generated `DROP TABLE "species"` and removal of the migration-history entry without modifying the database.
-- Step 10 Definition of Done is satisfied: a repository-owned migration creates the provider-independent species table with sensible constraints.
-- `pnpm --filter api typecheck`: passed for the observation migration.
-- `pnpm lint`: passed for `web` and `api` after adding the observation migration.
-- Targeted Prettier check for the observation migration: passed.
-- Migration dry run generated the `observations` table with a species foreign key, WGS84 point, observation metadata, coordinate and accuracy constraints, and provider provenance.
-- `pnpm --filter api db:migrate`: applied `20260922154444000_add-observation-geospatial-model` to the development Supabase database.
-- A second migration run reported no pending migrations.
-- Database inspection confirmed the observation columns, nullable boolean obscurity status, PostGIS geometry type in the `extensions` schema, constraints, foreign key, and migration-history entry.
-- A transactionally rolled-back verification insert persisted a Warsaw point with SRID 4326 and source information; a longitude of `181` was rejected by `observations_location_check` with SQLSTATE `23514`.
-- A transactionally rolled-back verification confirmed that `location_obscured` preserves all three semantic states: `true`, `false`, and `NULL`.
-- Down-migration dry run generated `DROP TABLE "observations"` and removal of the migration-history entry without modifying the database.
-- Step 11 Definition of Done is satisfied: the database can persist a valid observation point with its species relationship, sensitivity metadata, and source provenance.
-- `pnpm --filter api typecheck`: passed for the observation index migration.
-- `pnpm lint`: passed for `web` and `api` after adding the observation indexes.
-- Targeted Prettier check for the observation index migration: passed.
-- Migration dry run generated the provider/external-ID unique constraint, the `species_id` B-tree index, and the `location` GiST index.
-- `pnpm --filter api db:migrate`: applied `20260922163831000_add-observation-query-indexes` to the development Supabase database.
-- A second migration run reported no pending migrations.
-- Database inspection confirmed all three indexes. Forced query plans used them for provider/external-ID lookup, species filtering, and bounding-box filtering respectively.
-- Down-migration dry run generated removal of both explicit indexes and the unique constraint without modifying the database.
-- Step 12 Definition of Done is satisfied: every new index is migration-defined and connected to a real observation query pattern.
-- `pnpm --filter api typecheck`: passed for API source, migrations, integration tests, and the Vitest configuration.
-- `pnpm lint`: passed for `web` and `api` with the integration-test files included.
-- `pnpm format:check`: passed.
-- `pnpm peers check`: passed with no peer dependency issues after adding Vitest and Testcontainers.
-- `pnpm test:integration`: passed against an ephemeral `postgis/postgis:17-3.5-alpine` container after applying all repository migrations; the test persisted and read a species observation through one transaction-bound `PoolClient`.
-- Step 13 Definition of Done is satisfied: a real PostgreSQL/PostGIS integration test persists and reads a sample record with isolated database state.
-- `pnpm test`: passed all 6 external HTTP client unit tests.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests, and both Vitest configurations.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm --filter api build`: passed.
-- `pnpm format:check`: passed.
-- `git diff --check`: passed.
-- Step 14 Definition of Done is satisfied: provider integrations can explicitly import and use one controlled HTTP client foundation with timeout, provider-aware logging, and categorized failures.
-- `pnpm --filter api test -- inaturalist-response.spec.ts`: passed all 14 API unit tests, including 8 iNaturalist response-validation cases.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests, and both Vitest configurations.
-- Targeted ESLint and Prettier checks for the iNaturalist schema, integration error, and unit tests: passed.
-- Step 15 Definition of Done is satisfied: invalid iNaturalist taxa contracts produce a controlled integration error, while the valid minimal response and omitted common names are accepted.
-- `pnpm --filter api test -- inaturalist-adapter.spec.ts`: passed all 18 API unit tests, including adapter request construction, result mapping, blank-query rejection, and invalid-contract handling.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests after adding the adapter.
-- Targeted ESLint and Prettier checks for the iNaturalist adapter, module, root-module wiring, and adapter tests: passed.
-- `pnpm --filter api build`: passed with the iNaturalist module registered in the NestJS application graph.
-- `git diff --check`: passed.
-- Step 16 Definition of Done is satisfied: the adapter searches iNaturalist and returns a small internal integration type rather than the raw provider response.
-- `pnpm --filter api test -- test/inaturalist-species-mapper.spec.ts test/species-service.spec.ts`: passed all 21 API unit tests, including species normalization and service delegation.
-- `pnpm --filter api typecheck`: passed for API source, migrations, and tests after adding the species domain boundary.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `pnpm --filter api build`: passed with `SpeciesModule` owning the iNaturalist integration dependency in the NestJS application graph.
-- `git diff --check`: passed.
-- Step 17 Definition of Done is satisfied: `SpeciesService` returns Nature Lens species models without importing iNaturalist response or integration-result types.
-- `pnpm --filter api test`: passed all 26 API unit tests, including successful species endpoint delegation and invalid-query rejection.
-- `pnpm --filter api typecheck`: passed for API source, migrations, and tests after adding the species search endpoint.
-- `pnpm --filter api build`: passed with `SpeciesController` registered in `SpeciesModule`.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `git diff --check`: passed.
-- Step 18 Definition of Done is satisfied: `GET /api/species/search?q=...` accepts a query such as `jeleń` and returns normalized Nature Lens species DTOs.
-- `pnpm --filter api test`: passed all 39 API unit tests, including observation contract validation, Poland/taxon filtering, pagination, integration mapping, input rejection, and controlled invalid-response handling.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit and integration tests after adding observation retrieval.
-- `pnpm --filter api build`: passed.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `git diff --check`: passed.
-- A runtime request through the built `INaturalistAdapter` returned two real `Bos bonasus` observations from Poland with pagination metadata, public coordinates, accuracy values, privacy metadata, and source URLs.
-- Step 19 Definition of Done is satisfied: the adapter returns runtime-validated, paginated real observations for a selected species restricted to Poland.
-- `pnpm --filter api test`: passed all 46 API unit tests, including observation privacy, public-accuracy, missing-coordinate, temporal-precision, mapper, and service normalization cases.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding observation normalization.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `git diff --check`: passed.
-- Step 20 Definition of Done is satisfied: normalized observations preserve limited precision and provider restrictions without inferring obscurity from missing coordinates or exposing more precise non-public accuracy.
-- `pnpm --filter api test`: passed all 57 API unit tests, including live-observation endpoint DTO mapping, pagination defaults, service delegation, and invalid-request rejection.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after exposing live observations.
-- `pnpm --filter api build`: passed.
-- Targeted ESLint and Prettier checks for the species controller, observation response DTOs, and controller tests: passed.
-- `git diff --check`: passed.
-- Step 21 Definition of Done is satisfied: the API returns normalized live observation DTOs containing privacy-aware location, date, and source provenance.
-- `pnpm --filter api test`: passed all 71 API unit tests, including provider-error normalization, stable HTTP mappings, technical-detail protection, and uncontrolled-error passthrough.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding provider error translation.
-- `pnpm --filter api build`: passed.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `git diff --check`: passed.
-- Step 22 Definition of Done is satisfied: common iNaturalist failures produce predictable application-level HTTP responses and useful provider-aware logs without leaking transport or validation details.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding species persistence.
-- `pnpm --filter api test`: passed all 71 API unit tests.
-- `pnpm --filter api test:integration`: passed all 3 persistence tests against ephemeral PostgreSQL/PostGIS, including idempotent species upsert and transactional rollback on a mapping conflict.
-- `pnpm exec eslint api`: passed.
-- `pnpm --filter api build`: passed.
-- Targeted Prettier check and `git diff --check`: passed.
-- Step 23 Definition of Done is satisfied: repeated persistence of the same provider species returns one internal species and one provider mapping while updating the mutable normalized fields.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding observation persistence.
-- `pnpm --filter api test`: passed all 73 API unit tests, including internal species-ID resolution, invalid-ID rejection, and missing-mapping handling.
-- `pnpm --filter api test:integration`: passed all 5 persistence tests against ephemeral PostgreSQL/PostGIS, including idempotent batch upsert, nullable dates and locations, coordinate order, and atomic rollback.
-- `pnpm exec eslint api`: passed.
-- `pnpm --filter api build`: passed.
-- Targeted Prettier formatting and `git diff --check`: passed.
-- Step 24 Definition of Done is satisfied: synchronizing the same observation range repeatedly updates the existing provider records without creating duplicates.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding on-demand synchronization.
-- `pnpm --filter api test`: passed all 77 API unit tests, including fresh cache hits, missing-page synchronization, the freshness boundary, stale-if-error fallback, and missing-cache provider failures.
-- `pnpm --filter api test:integration`: passed all 8 persistence tests against ephemeral PostgreSQL/PostGIS, including exact page ordering, private-location round trips, empty-page caching, pagination-key isolation, and rollback of freshness on failed replacement.
-- `pnpm --filter api build`: passed.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- `git diff --check`: passed.
-- Step 25 Definition of Done is satisfied: repeated requests for a sufficiently fresh exact observation page use PostgreSQL without contacting iNaturalist.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding the bounding-box query.
-- `pnpm --filter api test`: passed all 77 API unit tests.
-- `pnpm --filter api test:integration`: passed all 9 persistence tests against ephemeral PostgreSQL/PostGIS, including species-scoped bounding-box filtering, boundary inclusion, deterministic limiting, and exclusion of observations without locations.
-- `pnpm --filter api build`: passed.
-- `pnpm lint`: passed for `web` and `api`.
-- Targeted Prettier check and `git diff --check`: passed.
-- Step 26 Definition of Done is satisfied: region bounding-box queries use normalized local observations through PostGIS and have integration coverage.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding the GeoJSON response.
-- `pnpm --filter api test`: passed all 87 API unit tests, including GeoJSON mapping, bounding-box validation, local-dataset metadata, truncation propagation, and missing-species handling.
-- `pnpm --filter api test:integration`: passed all 9 persistence tests against ephemeral PostgreSQL/PostGIS, including deterministic `limit + 1` truncation detection.
-- `pnpm --filter api build`: passed.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm format:check`: passed.
-- Step 27 Definition of Done is satisfied: bounded spatial responses are valid GeoJSON, contain only the required normalized properties, and distinguish local dataset scope from limit-based truncation.
-- `pnpm exec eslint web`: passed after initializing the component foundation.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web typecheck`: passed.
-- Targeted Prettier check for the changed frontend files: passed.
-- Direct PostCSS compilation of `web/app/globals.css` with the Tailwind CSS 4 plugin: passed.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web build`: the standard Next.js 16 Turbopack build was attempted twice but could not complete because the agent execution environment denied the local port required by CSS processing; no Webpack override was used.
-- Step 28 Definition of Done is satisfied: the application owns configured Button, Input, and Card components without bulk-installing the component registry.
-- `pnpm format:check` and `git diff --check`: passed.
-- `pnpm --filter web typecheck`: passed after generating Next.js route types.
-- `pnpm lint`: passed for `web` and `api`.
-- `pnpm --filter web exec next build --webpack`: passed; `/` is server-rendered on demand because its search state comes from the URL.
-- Step 29 Definition of Done is satisfied: the species search UI uses `GET /api/species/search` for nonempty queries and renders the validated public response without implementing the detail route.
-- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding the species detail resource.
-- `pnpm --filter api test`: passed all 95 API unit tests, including species-detail controller validation and service not-found behavior.
-- `pnpm --filter api test:integration`: passed all 9 persistence tests against ephemeral PostgreSQL/PostGIS, including application-owned species detail reads.
-- `pnpm --filter api build`: passed.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web typecheck`: passed.
-- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web exec next build --webpack`: passed; `/species/[id]` is server-rendered on demand.
-- `pnpm lint`, `pnpm format:check`, and `git diff --check`: passed.
-- Step 30 Definition of Done is satisfied: selecting a search result opens its stable species detail page, backed by a server-side API fetch with distinct not-found and unavailable states.
-- `pnpm --filter web typecheck`: passed with MapLibre GL JS 6.13.0 and the species map Client Component.
-- `pnpm exec eslint web`: passed.
-- `pnpm --filter web exec next build --webpack`: passed; Next.js emitted the MapLibre worker as a hashed same-origin `.mjs` asset and kept `/species/[id]` server-rendered on demand.
-- `pnpm --filter web build`: the standard Turbopack build was attempted twice but the execution environment denied the local port required by CSS processing. The failure occurred while processing MapLibre CSS rather than from a source or worker resolution error.
-- Browser visual verification could not run because Computer Use permissions were unavailable in the execution environment.
-- Step 31 implementation is complete: the successful production build contains a responsive interactive map fitted to Poland, with navigation and metric scale controls and a lifecycle-safe MapLibre instance. Visual runtime confirmation remains an environment-limited check.
-
-## Next implementation
-
-Discuss and approve **35 · Add observation clustering and popup details** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+- `pnpm format:check`: passed after step 36.
+- `pnpm lint`: passed after step 36.
+- `pnpm typecheck`: passed for `web` and `api` after step 36.
+- `WEB_ORIGIN=http://localhost:3000 pnpm test`: last full run passed all 95 API unit tests.
+- `pnpm test:integration`: last full run passed all 9 PostgreSQL/PostGIS persistence tests.
+- The API production build last passed with the current architecture.
+- The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
+- `git diff --check`: passed after step 36.
+- Step 36 Definition of Done is satisfied: an observation failure remains inside its section and does not replace the species page.
