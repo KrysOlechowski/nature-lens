@@ -32,6 +32,13 @@ The project is also intended as a practical learning environment for senior fron
 - PostGIS
 - Supabase
 
+### Frontend build tooling
+
+- `web/` uses Next.js `^16.3.5`.
+- The existing build script is `next build`, so the project uses Next.js's default Turbopack build.
+- Use the existing `dev` and `build` scripts as-is.
+- Do not add `--webpack`, custom Webpack configuration, or switch bundlers unless the current task explicitly requires it and the change is discussed first.
+
 ### Architectural direction
 
 - The backend starts as a **modular monolith**.
