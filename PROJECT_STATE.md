@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend with a shadcn/ui component foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 5 · First working frontend product
 >
-> **Last completed step:** 27 · Return observations as GeoJSON
+> **Last completed step:** 28 · Initialize shadcn/ui foundation
 >
-> **Current step:** 28 · Initialize shadcn/ui foundation
+> **Current step:** 29 · Build species search UI
 >
-> **Next step:** 29 · Build species search UI
+> **Next step:** 30 · Add species detail route
 
 ## What currently works
 
@@ -18,6 +18,7 @@
 - Root and application package manifests are private.
 - pnpm is pinned to `12.4.1` through `packageManager`; the lockfile is generated.
 - `web` runs Next.js 16 with App Router, React 19, TypeScript, and Tailwind CSS 4.
+- `web` has a copy-owned shadcn/ui foundation with Button, Input, and Card components, neutral CSS theme tokens, and a root-scoped `@/*` import alias.
 - `/` renders a minimal English Nature Lens welcome page with responsive styling, English page metadata, `lang="en"`, and the current API connection status.
 - The Next.js Server Component fetches and validates `GET /api/health`; network, HTTP, and contract failures render a non-fatal unavailable state.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
@@ -69,6 +70,8 @@
 - Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
 - `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both are Server Components; no client interaction is needed yet.
 - Tailwind uses its PostCSS plugin. System fonts keep the page independent of external font downloads.
+- shadcn/ui uses the current `base-nova` preset backed by Base UI. Components live directly in `web/components/ui`; only Button, Input, and Card are installed for the next product step.
+- The shadcn/ui initializer's optional Geist font change is intentionally not retained; the established system-font decision remains in effect.
 - Root `dev:web` and `dev:api` start the applications separately; other scripts use `pnpm --filter web` or `pnpm --filter api`. Shared tooling remains in step 04.
 - Frontend `typecheck` runs Next.js type generation before TypeScript so it also works before the first build.
 - The API uses the default Express adapter, native ES modules, and strict TypeScript with decorator metadata. `main.ts` bootstraps the server; `AppModule` is the root module. No placeholder controllers, providers, or feature modules are introduced.
@@ -144,7 +147,7 @@
 
 ## Known limitations / blockers
 
-- The frontend only reports API health: it does not use the available species search or observations endpoints yet, and no observation map exists yet.
+- The frontend only reports API health: the component foundation is present, but it does not use the available species search or observations endpoints yet, and no observation map exists yet.
 - The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -348,7 +351,13 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm lint`: passed for `web` and `api`.
 - `pnpm format:check`: passed.
 - Step 27 Definition of Done is satisfied: bounded spatial responses are valid GeoJSON, contain only the required normalized properties, and distinguish local dataset scope from limit-based truncation.
+- `pnpm exec eslint web`: passed after initializing the component foundation.
+- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web typecheck`: passed.
+- Targeted Prettier check for the changed frontend files: passed.
+- Direct PostCSS compilation of `web/app/globals.css` with the Tailwind CSS 4 plugin: passed.
+- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web build`: the standard Next.js 16 Turbopack build was attempted twice but could not complete because the agent execution environment denied the local port required by CSS processing; no Webpack override was used.
+- Step 28 Definition of Done is satisfied: the application owns configured Button, Input, and Card components without bulk-installing the component registry.
 
 ## Next implementation
 
-Discuss and approve **28 · Initialize shadcn/ui foundation** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **29 · Build species search UI** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
