@@ -26,6 +26,11 @@ const normalizedObservation = {
     provider: "iNaturalist",
     externalId: "405566287",
     url: "https://www.inaturalist.org/observations/405566287",
+    license: {
+      code: "cc-by-nc",
+      url: null,
+    },
+    dataset: null,
   },
 };
 
@@ -214,6 +219,7 @@ describe("SpeciesService", () => {
           taxonGeoprivacy: "obscured",
           obscured: true,
           sourceUrl: "https://www.inaturalist.org/observations/405566287",
+          licenseCode: "cc-by-nc",
         },
       ],
     });
@@ -460,7 +466,13 @@ describe("SpeciesService", () => {
             locationPrivacy: "obscured",
             source: {
               provider: "iNaturalist",
+              externalId: "405566287",
               url: "https://www.inaturalist.org/observations/405566287",
+              license: {
+                code: "cc-by-nc",
+                url: null,
+              },
+              dataset: null,
             },
           },
         },

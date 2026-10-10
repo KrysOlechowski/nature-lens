@@ -16,6 +16,7 @@ const baseObservation: INaturalistObservationResult = {
   taxonGeoprivacy: null,
   obscured: false,
   sourceUrl: "https://www.inaturalist.org/observations/405566287",
+  licenseCode: "cc-by-nc",
 };
 
 describe("mapINaturalistObservation", () => {
@@ -34,6 +35,24 @@ describe("mapINaturalistObservation", () => {
         provider: "iNaturalist",
         externalId: "405566287",
         url: "https://www.inaturalist.org/observations/405566287",
+        license: {
+          code: "cc-by-nc",
+          url: null,
+        },
+        dataset: null,
+      },
+    });
+  });
+
+  it("keeps an unavailable observation license explicit", () => {
+    expect(
+      mapINaturalistObservation({
+        ...baseObservation,
+        licenseCode: null,
+      }),
+    ).toMatchObject({
+      source: {
+        license: null,
       },
     });
   });

@@ -11,6 +11,16 @@ const baseObservation: GBIFObservationResult = {
   },
   coordinateUncertaintyMeters: 26_004,
   sourceUrl: "https://www.gbif.org/occurrence/6129944648",
+  license: {
+    code: null,
+    url: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
+  },
+  dataset: {
+    externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+    title: "iNaturalist Research-grade Observations",
+    publisherExternalId: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
+    publisherName: "iNaturalist",
+  },
 };
 
 describe("mapGBIFObservation", () => {
@@ -29,6 +39,34 @@ describe("mapGBIFObservation", () => {
         provider: "GBIF",
         externalId: "6129944648",
         url: "https://www.gbif.org/occurrence/6129944648",
+        license: {
+          code: null,
+          url: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
+        },
+        dataset: {
+          externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          title: "iNaturalist Research-grade Observations",
+          url: "https://www.gbif.org/dataset/50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          publisher: {
+            externalId: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
+            name: "iNaturalist",
+          },
+        },
+      },
+    });
+  });
+
+  it("does not invent unavailable license or dataset metadata", () => {
+    expect(
+      mapGBIFObservation({
+        ...baseObservation,
+        license: null,
+        dataset: null,
+      }),
+    ).toMatchObject({
+      source: {
+        license: null,
+        dataset: null,
       },
     });
   });

@@ -41,6 +41,7 @@ export interface INaturalistObservationResult {
   taxonGeoprivacy: "open" | "obscured" | "private" | null;
   obscured: boolean;
   sourceUrl: string;
+  licenseCode: string | null;
 }
 
 @Injectable()
@@ -137,6 +138,7 @@ export class INaturalistAdapter
           taxonGeoprivacy: observation.taxon_geoprivacy,
           obscured: observation.obscured,
           sourceUrl: observation.uri,
+          licenseCode: observation.license_code,
         })),
       };
     } catch (error) {

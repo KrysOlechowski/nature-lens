@@ -30,6 +30,24 @@ export function mapGBIFObservation(
       provider: "GBIF",
       externalId: String(observation.externalId),
       url: observation.sourceUrl,
+      license: observation.license,
+      dataset: observation.dataset
+        ? {
+            externalId: observation.dataset.externalId,
+            title: observation.dataset.title,
+            url: observation.dataset.externalId
+              ? `https://www.gbif.org/dataset/${observation.dataset.externalId}`
+              : null,
+            publisher:
+              observation.dataset.publisherExternalId ||
+              observation.dataset.publisherName
+                ? {
+                    externalId: observation.dataset.publisherExternalId,
+                    name: observation.dataset.publisherName,
+                  }
+                : null,
+          }
+        : null,
     },
   };
 }

@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** the first complete iNaturalist-backed vertical slice works, and confident GBIF Backbone matches now share application-owned species identities with iNaturalist taxa
+> **Status:** the first complete iNaturalist-backed vertical slice works, and normalized observations now preserve provider, license, dataset, and publisher provenance
 >
 > **Current phase:** Phase 6 · GBIF, provenance, and first analyses
 >
-> **Last completed step:** 39 · Resolve species identity across providers
+> **Last completed step:** 40 · Preserve source provenance across providers
 >
-> **Current step:** 40 · Preserve source provenance across providers
+> **Current step:** 41 · Add conservative cross-provider deduplication
 >
-> **Next step:** 41 · Add conservative cross-provider deduplication
+> **Next step:** 42 · Add observation seasonality aggregation
 
 ## What currently works
 
@@ -32,6 +32,7 @@
 - Species identity resolution links exact, high-confidence GBIF Backbone matches to iNaturalist taxa, resolves synonyms to accepted GBIF usages, and leaves uncertain matches separate.
 - Observation providers accept one Nature Lens page-based pagination contract and translate it into provider-specific parameters such as `page`/`per_page` or `limit`/`offset`.
 - `SpeciesService` returns provider-independent Nature Lens species and observation models, preserving source provenance, temporal precision, public coordinate accuracy, and provider privacy restrictions.
+- Observation provenance retains the provider record link, independently available license code and URL, and optional dataset identity, title, link, publisher name, and publisher organization ID through normalization, persistence, paginated responses, and GeoJSON responses.
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
 - Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior.
 - Local observations can be queried by a WGS84 bounding box and returned as a bounded GeoJSON `FeatureCollection<Point>` with explicit local-dataset and truncation metadata.
@@ -43,7 +44,7 @@
 - Local development uses the Supabase Session pooler for IPv4 compatibility. Its connection string remains in the ignored `api/.env` file.
 - PostGIS is installed in the dedicated `extensions` schema, and spatial functions and operators are schema-qualified.
 - `species` stores application-owned identities without treating a scientific name as unique. `species_provider_mappings` keeps provider-specific external IDs and compact identity-resolution audit context outside the core species model.
-- `observations` stores normalized dates, optional timestamps, optional WGS84 `geometry(Point, 4326)` locations, public accuracy and privacy information, provider provenance, and source URLs.
+- `observations` stores normalized dates, optional timestamps, optional WGS84 `geometry(Point, 4326)` locations, public accuracy and privacy information, provider record links, license details, and optional dataset and publisher provenance.
 - Observation-page synchronization tables preserve exact page membership, ordering, provider totals, and freshness independently of observation record timestamps.
 - Provider-scoped observation identifiers are unique. Species lookups use a B-tree index, and public-location viewport queries use a GiST index.
 - Missing public coordinates remain `NULL`; coordinates are never reconstructed from restricted or non-public provider data.
@@ -57,6 +58,9 @@
 - Provider adapters own endpoint details, query parameters, provider-specific validation, transport translation, and mapping into small integration types.
 - Provider DI tokens are capability- and provider-specific. `SpeciesService` depends on separate iNaturalist search and observation contracts rather than on the concrete adapter, while multi-provider orchestration remains deferred.
 - GBIF occurrence `key` is stored as the provider-scoped external observation ID. It supports idempotency for the same GBIF record but is not treated as semantic occurrence identity or as a permanent cross-publication identifier.
+- License codes and URLs are independent optional representations. Nature Lens preserves only values supplied by a provider and does not invent a missing equivalent.
+- GBIF occurrence responses provide dataset and publisher identifiers without an additional Registry request. A stable GBIF dataset link is derived from `datasetKey`; unavailable titles or publisher names remain `null`.
+- Observation upserts enrich missing provenance without replacing stored optional values with a later `null`. A changed dataset identifier starts a new metadata group so fields from different datasets are never combined.
 - GBIF exposes public occurrence coordinates without an iNaturalist-equivalent privacy contract. Their privacy remains `unknown`; missing coordinates never imply obscurity, and date-times without an explicit offset never receive an invented timezone.
 - Application services and normalized models remain provider-independent while retaining provider name, external ID, and source URL.
 - Species use internal `bigint` identities represented as strings in public JSON. Provider mappings are written transactionally and cannot be silently reassigned to another species.
@@ -85,6 +89,7 @@
 - CI and production deployment are not configured.
 - Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider.
 - The GBIF observation capability is registered but is not yet used by `SpeciesService`; multi-provider observation orchestration remains future work.
+- Observations persisted before step 40 have nullable license and dataset provenance until a later provider synchronization supplies it.
 - Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
@@ -119,12 +124,12 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 39.
-- `pnpm lint`: passed after step 39.
-- `pnpm --filter api typecheck`: passed after step 39.
-- `WEB_ORIGIN=http://localhost:3000 pnpm --filter api test`: passed all 143 API unit tests after step 39.
-- `pnpm test:integration`: passed all 11 PostgreSQL/PostGIS persistence tests after step 39.
-- The API production build passed after step 39.
+- `pnpm format:check`: passed after step 40.
+- `pnpm lint`: passed after step 40.
+- `pnpm typecheck`: passed for the web and API applications after step 40.
+- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 145 API unit tests after step 40.
+- `pnpm test:integration`: passed all 12 PostgreSQL/PostGIS persistence tests after step 40.
+- The API production build passed after step 40.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
-- `git diff --check`: passed after step 39.
-- Step 39 Definition of Done is satisfied: clear iNaturalist/GBIF equivalents share one `species_id`, synonym-to-accepted decisions remain auditable, and ambiguous cases are not merged automatically.
+- `git diff --check`: passed after step 40.
+- Step 40 Definition of Done is satisfied: provider normalization, persistence, and public observation responses retain all available provider record, license, dataset, and publisher provenance without inventing unavailable values.

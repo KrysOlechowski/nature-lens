@@ -1,4 +1,6 @@
 import type {
+  ObservationDataset,
+  ObservationLicense,
   ObservationLocationPrecision,
   ObservationLocationPrivacy,
 } from "./species-observation.model.js";
@@ -26,7 +28,10 @@ export interface SpeciesObservationGeoJsonFeature {
     locationPrivacy: ObservationLocationPrivacy;
     source: {
       provider: string;
+      externalId: string;
       url: string;
+      license: ObservationLicense | null;
+      dataset: ObservationDataset | null;
     };
   };
 }

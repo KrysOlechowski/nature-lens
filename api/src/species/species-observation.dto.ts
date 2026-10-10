@@ -38,11 +38,15 @@ class ObservationSourceDto {
   readonly provider: string;
   readonly externalId: string;
   readonly url: string;
+  readonly license: SpeciesObservation["source"]["license"];
+  readonly dataset: SpeciesObservation["source"]["dataset"];
 
   constructor(source: SpeciesObservation["source"]) {
     this.provider = source.provider;
     this.externalId = source.externalId;
     this.url = source.url;
+    this.license = source.license;
+    this.dataset = source.dataset;
   }
 }
 

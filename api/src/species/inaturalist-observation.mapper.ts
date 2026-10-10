@@ -26,6 +26,10 @@ export function mapINaturalistObservation(
       provider: "iNaturalist",
       externalId: String(observation.externalId),
       url: observation.sourceUrl,
+      license: observation.licenseCode
+        ? { code: observation.licenseCode, url: null }
+        : null,
+      dataset: null,
     },
   };
 }

@@ -4,6 +4,7 @@ import { DatabaseService } from "../database/database.service.js";
 import type {
   ObservationLocationPrecision,
   ObservationLocationPrivacy,
+  ObservationLicense,
   SpeciesObservation,
   SpeciesObservationPageData,
   StoredSpeciesObservationPage,
@@ -21,6 +22,13 @@ interface PersistedObservationInput {
   location_privacy: ObservationLocationPrivacy;
   location_precision: ObservationLocationPrecision | null;
   source_url: string;
+  license_code: string | null;
+  license_url: string | null;
+  dataset_external_id: string | null;
+  dataset_title: string | null;
+  dataset_url: string | null;
+  publisher_external_id: string | null;
+  publisher_name: string | null;
 }
 
 interface PersistedObservationIdRow {
@@ -41,6 +49,13 @@ interface PersistedObservationRow {
   provider: string | null;
   external_id: string | null;
   source_url: string | null;
+  license_code: string | null;
+  license_url: string | null;
+  dataset_external_id: string | null;
+  dataset_title: string | null;
+  dataset_url: string | null;
+  publisher_external_id: string | null;
+  publisher_name: string | null;
 }
 
 interface PersistedObservationPageRow extends PersistedObservationRow {
@@ -113,7 +128,14 @@ export class ObservationRepository {
           observation.location_precision,
           observation.provider,
           observation.external_id,
-          observation.source_url
+          observation.source_url,
+          observation.license_code,
+          observation.license_url,
+          observation.dataset_external_id,
+          observation.dataset_title,
+          observation.dataset_url,
+          observation.publisher_external_id,
+          observation.publisher_name
         FROM observation_page_syncs AS sync
         LEFT JOIN observation_page_sync_items AS item
           ON item.sync_id = sync.id
@@ -173,7 +195,14 @@ export class ObservationRepository {
           observation.location_precision,
           observation.provider,
           observation.external_id,
-          observation.source_url
+          observation.source_url,
+          observation.license_code,
+          observation.license_url,
+          observation.dataset_external_id,
+          observation.dataset_title,
+          observation.dataset_url,
+          observation.publisher_external_id,
+          observation.publisher_name
         FROM observations AS observation
         CROSS JOIN bounds
         WHERE observation.species_id = $1
@@ -301,7 +330,14 @@ export class ObservationRepository {
           location_obscured,
           location_privacy,
           location_precision,
-          source_url
+          source_url,
+          license_code,
+          license_url,
+          dataset_external_id,
+          dataset_title,
+          dataset_url,
+          publisher_external_id,
+          publisher_name
         )
         SELECT
           $1::bigint,
@@ -320,7 +356,14 @@ export class ObservationRepository {
           input.location_obscured,
           input.location_privacy,
           input.location_precision,
-          input.source_url
+          input.source_url,
+          input.license_code,
+          input.license_url,
+          input.dataset_external_id,
+          input.dataset_title,
+          input.dataset_url,
+          input.publisher_external_id,
+          input.publisher_name
         FROM jsonb_to_recordset($2::jsonb) AS input (
           provider text,
           external_id text,
@@ -332,7 +375,14 @@ export class ObservationRepository {
           location_obscured boolean,
           location_privacy text,
           location_precision text,
-          source_url text
+          source_url text,
+          license_code text,
+          license_url text,
+          dataset_external_id text,
+          dataset_title text,
+          dataset_url text,
+          publisher_external_id text,
+          publisher_name text
         )
         ON CONFLICT (provider, external_id)
         DO UPDATE SET
@@ -344,7 +394,50 @@ export class ObservationRepository {
           location_obscured = EXCLUDED.location_obscured,
           location_privacy = EXCLUDED.location_privacy,
           location_precision = EXCLUDED.location_precision,
-          source_url = EXCLUDED.source_url
+          source_url = EXCLUDED.source_url,
+          license_code = COALESCE(
+            EXCLUDED.license_code,
+            observations.license_code
+          ),
+          license_url = COALESCE(
+            EXCLUDED.license_url,
+            observations.license_url
+          ),
+          dataset_external_id = COALESCE(
+            EXCLUDED.dataset_external_id,
+            observations.dataset_external_id
+          ),
+          dataset_title = CASE
+            WHEN EXCLUDED.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS DISTINCT FROM EXCLUDED.dataset_external_id
+              THEN EXCLUDED.dataset_title
+            ELSE COALESCE(EXCLUDED.dataset_title, observations.dataset_title)
+          END,
+          dataset_url = CASE
+            WHEN EXCLUDED.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS DISTINCT FROM EXCLUDED.dataset_external_id
+              THEN EXCLUDED.dataset_url
+            ELSE COALESCE(EXCLUDED.dataset_url, observations.dataset_url)
+          END,
+          publisher_external_id = CASE
+            WHEN EXCLUDED.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS DISTINCT FROM EXCLUDED.dataset_external_id
+              THEN EXCLUDED.publisher_external_id
+            ELSE COALESCE(
+              EXCLUDED.publisher_external_id,
+              observations.publisher_external_id
+            )
+          END,
+          publisher_name = CASE
+            WHEN EXCLUDED.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS NOT NULL
+              AND observations.dataset_external_id IS DISTINCT FROM EXCLUDED.dataset_external_id
+              THEN EXCLUDED.publisher_name
+            ELSE COALESCE(EXCLUDED.publisher_name, observations.publisher_name)
+          END
         RETURNING id::text, provider, external_id
       `,
       [speciesId, JSON.stringify(inputs)],
@@ -406,6 +499,27 @@ function toSpeciesObservation(
         provider: row.provider,
         externalId: row.external_id,
         url: row.source_url,
+        license: toObservationLicense(row.license_code, row.license_url),
+        dataset:
+          row.dataset_external_id !== null ||
+          row.dataset_title !== null ||
+          row.dataset_url !== null ||
+          row.publisher_external_id !== null ||
+          row.publisher_name !== null
+            ? {
+                externalId: row.dataset_external_id,
+                title: row.dataset_title,
+                url: row.dataset_url,
+                publisher:
+                  row.publisher_external_id !== null ||
+                  row.publisher_name !== null
+                    ? {
+                        externalId: row.publisher_external_id,
+                        name: row.publisher_name,
+                      }
+                    : null,
+              }
+            : null,
       },
     },
   ];
@@ -426,7 +540,26 @@ function toPersistedObservationInput(
     location_privacy: observation.locationPrivacy,
     location_precision: observation.location?.precision ?? null,
     source_url: observation.source.url,
+    license_code: observation.source.license?.code ?? null,
+    license_url: observation.source.license?.url ?? null,
+    dataset_external_id: observation.source.dataset?.externalId ?? null,
+    dataset_title: observation.source.dataset?.title ?? null,
+    dataset_url: observation.source.dataset?.url ?? null,
+    publisher_external_id:
+      observation.source.dataset?.publisher?.externalId ?? null,
+    publisher_name: observation.source.dataset?.publisher?.name ?? null,
   };
+}
+
+function toObservationLicense(
+  code: string | null,
+  url: string | null,
+): ObservationLicense | null {
+  if (code !== null) {
+    return { code, url };
+  }
+
+  return url === null ? null : { code: null, url };
 }
 
 function toLocationObscured(

@@ -50,10 +50,14 @@ function createSpecies(
   };
 }
 
+type ObservationOverrides = Omit<Partial<SpeciesObservation>, "source"> & {
+  source?: Partial<SpeciesObservation["source"]>;
+};
+
 function createObservation(
-  overrides: Partial<SpeciesObservation> = {},
+  overrides: ObservationOverrides = {},
 ): SpeciesObservation {
-  return {
+  const observation: SpeciesObservation = {
     observedOn: "2026-10-03",
     observedAt: "2026-10-03T14:45:26.000Z",
     location: {
@@ -67,8 +71,21 @@ function createObservation(
       provider: "iNaturalist",
       externalId: "405566287",
       url: "https://www.inaturalist.org/observations/405566287",
+      license: {
+        code: "cc-by-nc",
+        url: null,
+      },
+      dataset: null,
     },
+  };
+
+  return {
+    ...observation,
     ...overrides,
+    source: {
+      ...observation.source,
+      ...overrides.source,
+    },
   };
 }
 
@@ -455,6 +472,163 @@ describe("database persistence", () => {
         observed_at: null,
         observed_on: "2026-10-04",
         srid: null,
+      },
+    ]);
+  });
+
+  it("backfills provenance and preserves it across partial observation upserts", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+    const observationWithoutProvenance = createObservation({
+      source: {
+        license: null,
+        dataset: null,
+      },
+    });
+
+    await observationRepository.upsertMany(speciesId, [
+      observationWithoutProvenance,
+    ]);
+    await observationRepository.upsertMany(speciesId, [
+      createObservation({
+        source: {
+          license: null,
+          dataset: {
+            externalId: null,
+            title: "iNaturalist Research-grade Observations",
+            url: null,
+            publisher: {
+              externalId: null,
+              name: "iNaturalist",
+            },
+          },
+        },
+      }),
+    ]);
+    await observationRepository.upsertMany(speciesId, [
+      createObservation({
+        source: {
+          license: {
+            code: null,
+            url: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
+          },
+          dataset: {
+            externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+            title: null,
+            url: "https://www.gbif.org/dataset/50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+            publisher: {
+              externalId: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
+              name: null,
+            },
+          },
+        },
+      }),
+    ]);
+    await observationRepository.upsertMany(speciesId, [
+      createObservation({
+        source: {
+          license: null,
+          dataset: {
+            externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+            title: null,
+            url: null,
+            publisher: {
+              externalId: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
+              name: null,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const result = await client.query<{
+      dataset_external_id: string | null;
+      dataset_title: string | null;
+      dataset_url: string | null;
+      license_code: string | null;
+      license_url: string | null;
+      publisher_external_id: string | null;
+      publisher_name: string | null;
+    }>(
+      `
+        SELECT
+          license_code,
+          license_url,
+          dataset_external_id,
+          dataset_title,
+          dataset_url,
+          publisher_external_id,
+          publisher_name
+        FROM observations
+        WHERE provider = $1
+          AND external_id = $2
+      `,
+      ["iNaturalist", "405566287"],
+    );
+
+    expect(result.rows).toEqual([
+      {
+        license_code: null,
+        license_url: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
+        dataset_external_id: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+        dataset_title: "iNaturalist Research-grade Observations",
+        dataset_url:
+          "https://www.gbif.org/dataset/50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+        publisher_external_id: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
+        publisher_name: "iNaturalist",
+      },
+    ]);
+
+    await observationRepository.upsertMany(speciesId, [
+      createObservation({
+        source: {
+          license: null,
+          dataset: {
+            externalId: "ca2cf030-2a9e-49b4-945c-79b9f49f2571",
+            title: null,
+            url: "https://www.gbif.org/dataset/ca2cf030-2a9e-49b4-945c-79b9f49f2571",
+            publisher: null,
+          },
+        },
+      }),
+    ]);
+
+    const replacedDatasetResult = await client.query<{
+      dataset_external_id: string | null;
+      dataset_title: string | null;
+      dataset_url: string | null;
+      license_url: string | null;
+      publisher_external_id: string | null;
+      publisher_name: string | null;
+    }>(
+      `
+        SELECT
+          license_url,
+          dataset_external_id,
+          dataset_title,
+          dataset_url,
+          publisher_external_id,
+          publisher_name
+        FROM observations
+        WHERE provider = $1
+          AND external_id = $2
+      `,
+      ["iNaturalist", "405566287"],
+    );
+
+    expect(replacedDatasetResult.rows).toEqual([
+      {
+        license_url: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
+        dataset_external_id: "ca2cf030-2a9e-49b4-945c-79b9f49f2571",
+        dataset_title: null,
+        dataset_url:
+          "https://www.gbif.org/dataset/ca2cf030-2a9e-49b4-945c-79b9f49f2571",
+        publisher_external_id: null,
+        publisher_name: null,
       },
     ]);
   });

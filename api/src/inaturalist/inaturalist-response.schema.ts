@@ -31,6 +31,11 @@ const iNaturalistObservationSchema = z.object({
   taxon_geoprivacy: z.enum(["open", "obscured", "private"]).nullable(),
   obscured: z.boolean(),
   uri: z.url(),
+  license_code: z
+    .string()
+    .min(1)
+    .nullish()
+    .transform((value) => value ?? null),
 });
 
 const iNaturalistObservationsResponseSchema = z.object({

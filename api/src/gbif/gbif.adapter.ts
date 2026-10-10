@@ -32,6 +32,22 @@ export interface GBIFObservationResult {
   } | null;
   coordinateUncertaintyMeters: number | null;
   sourceUrl: string;
+  license:
+    | {
+        code: string;
+        url: null;
+      }
+    | {
+        code: null;
+        url: string;
+      }
+    | null;
+  dataset: {
+    externalId: string | null;
+    title: string | null;
+    publisherExternalId: string | null;
+    publisherName: string | null;
+  } | null;
 }
 
 export interface GBIFTaxonUsage {
@@ -117,6 +133,8 @@ export class GBIFAdapter
           coordinateUncertaintyMeters:
             occurrence.coordinateUncertaintyInMeters ?? null,
           sourceUrl: `https://www.gbif.org/occurrence/${occurrence.key}`,
+          license: toGBIFLicense(occurrence.license ?? null),
+          dataset: toGBIFDataset(occurrence),
         })),
       };
     } catch (error) {
@@ -174,6 +192,51 @@ export class GBIFAdapter
       throwGBIFProviderError(error);
     }
   }
+}
+
+function toGBIFLicense(value: string | null): GBIFObservationResult["license"] {
+  if (value === null) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return { code: null, url: value };
+    }
+  } catch {
+    // A non-URL provider value remains a code; no missing URL is invented.
+  }
+
+  return { code: value, url: null };
+}
+
+function toGBIFDataset(
+  occurrence: ReturnType<
+    typeof parseGBIFOccurrencesResponse
+  >["results"][number],
+): GBIFObservationResult["dataset"] {
+  const externalId = occurrence.datasetKey ?? null;
+  const title = occurrence.datasetTitle ?? null;
+  const publisherExternalId = occurrence.publishingOrgKey ?? null;
+  const publisherName = occurrence.publisher ?? null;
+
+  if (
+    externalId === null &&
+    title === null &&
+    publisherExternalId === null &&
+    publisherName === null
+  ) {
+    return null;
+  }
+
+  return {
+    externalId,
+    title,
+    publisherExternalId,
+    publisherName,
+  };
 }
 
 function assertPositiveInteger(value: number, field: string): void {

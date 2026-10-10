@@ -62,9 +62,15 @@ describe("GBIFAdapter", () => {
           decimalLatitude: 52.708039,
           decimalLongitude: 23.764744,
           coordinateUncertaintyInMeters: 26_004,
+          license: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
+          datasetKey: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          datasetTitle: "iNaturalist Research-grade Observations",
+          publishingOrgKey: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
+          publisher: "iNaturalist",
         },
         {
           key: 6_130_241_491,
+          license: "CC_BY_4_0",
         },
       ],
     });
@@ -85,6 +91,16 @@ describe("GBIFAdapter", () => {
           },
           coordinateUncertaintyMeters: 26_004,
           sourceUrl: "https://www.gbif.org/occurrence/6129944648",
+          license: {
+            code: null,
+            url: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
+          },
+          dataset: {
+            externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+            title: "iNaturalist Research-grade Observations",
+            publisherExternalId: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
+            publisherName: "iNaturalist",
+          },
         },
         {
           externalId: 6_130_241_491,
@@ -92,6 +108,11 @@ describe("GBIFAdapter", () => {
           coordinates: null,
           coordinateUncertaintyMeters: null,
           sourceUrl: "https://www.gbif.org/occurrence/6130241491",
+          license: {
+            code: "CC_BY_4_0",
+            url: null,
+          },
+          dataset: null,
         },
       ],
     });

@@ -11,6 +11,28 @@ export interface ObservationLocation {
   precision: ObservationLocationPrecision;
 }
 
+export type ObservationLicense =
+  | {
+      code: string;
+      url: string | null;
+    }
+  | {
+      code: null;
+      url: string;
+    };
+
+export interface ObservationDatasetPublisher {
+  externalId: string | null;
+  name: string | null;
+}
+
+export interface ObservationDataset {
+  externalId: string | null;
+  title: string | null;
+  url: string | null;
+  publisher: ObservationDatasetPublisher | null;
+}
+
 export interface SpeciesObservation {
   observedOn: string | null;
   observedAt: string | null;
@@ -20,6 +42,8 @@ export interface SpeciesObservation {
     provider: string;
     externalId: string;
     url: string;
+    license: ObservationLicense | null;
+    dataset: ObservationDataset | null;
   };
 }
 

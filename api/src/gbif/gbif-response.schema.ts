@@ -8,6 +8,11 @@ const gbifOccurrenceSchema = z
     decimalLatitude: z.number().min(-90).max(90).nullish(),
     decimalLongitude: z.number().min(-180).max(180).nullish(),
     coordinateUncertaintyInMeters: z.number().nonnegative().nullish(),
+    license: z.string().min(1).nullish(),
+    datasetKey: z.uuid().nullish(),
+    datasetTitle: z.string().min(1).nullish(),
+    publishingOrgKey: z.uuid().nullish(),
+    publisher: z.string().min(1).nullish(),
   })
   .superRefine((occurrence, context) => {
     const hasLatitude = occurrence.decimalLatitude != null;

@@ -240,7 +240,10 @@ function toGeoJsonFeature(
       locationPrivacy: observation.locationPrivacy,
       source: {
         provider: observation.source.provider,
+        externalId: observation.source.externalId,
         url: observation.source.url,
+        license: observation.source.license,
+        dataset: observation.source.dataset,
       },
     },
   };

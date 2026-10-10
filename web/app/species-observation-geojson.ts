@@ -2,6 +2,15 @@ import { z } from "zod";
 
 export const maximumMapObservations = "1000";
 
+const observationLicenseSchema = z
+  .object({
+    code: z.string().nullable(),
+    url: z.url({ protocol: /^https?$/ }).nullable(),
+  })
+  .refine((license) => license.code !== null || license.url !== null, {
+    message: "An observation license requires a code or URL",
+  });
+
 export const observationGeoJsonPropertiesSchema = z.object({
   observedOn: z.string().nullable(),
   observedAt: z.string().nullable(),
@@ -10,7 +19,22 @@ export const observationGeoJsonPropertiesSchema = z.object({
   locationPrivacy: z.enum(["open", "obscured", "private", "unknown"]),
   source: z.object({
     provider: z.string(),
+    externalId: z.string(),
     url: z.url({ protocol: /^https?$/ }),
+    license: observationLicenseSchema.nullable(),
+    dataset: z
+      .object({
+        externalId: z.string().nullable(),
+        title: z.string().nullable(),
+        url: z.url({ protocol: /^https?$/ }).nullable(),
+        publisher: z
+          .object({
+            externalId: z.string().nullable(),
+            name: z.string().nullable(),
+          })
+          .nullable(),
+      })
+      .nullable(),
   }),
 });
 
