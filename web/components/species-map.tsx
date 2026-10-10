@@ -8,6 +8,8 @@ import {
   setWorkerUrl,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import type { SpeciesObservationGeoJson } from "@/app/species-observations";
+import { polandBoundingBox } from "@/lib/poland-bounds";
 
 setWorkerUrl(
   new URL(
@@ -17,15 +19,19 @@ setWorkerUrl(
 );
 
 const polandBounds: [[number, number], [number, number]] = [
-  [14.12, 49],
-  [24.15, 54.84],
+  [polandBoundingBox.west, polandBoundingBox.south],
+  [polandBoundingBox.east, polandBoundingBox.north],
 ];
+
+const observationsSourceId = "species-observations";
+const observationsLayerId = "species-observation-points";
 
 interface SpeciesMapProps {
   mapStyleUrl: string;
+  observations?: SpeciesObservationGeoJson;
 }
 
-export function SpeciesMap({ mapStyleUrl }: SpeciesMapProps) {
+export function SpeciesMap({ mapStyleUrl, observations }: SpeciesMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
 
@@ -47,6 +53,29 @@ export function SpeciesMap({ mapStyleUrl }: SpeciesMapProps) {
 
     mapRef.current = map;
 
+    const handleLoad = () => {
+      if (!observations) {
+        return;
+      }
+
+      map.addSource(observationsSourceId, {
+        type: "geojson",
+        data: observations,
+      });
+      map.addLayer({
+        id: observationsLayerId,
+        type: "circle",
+        source: observationsSourceId,
+        paint: {
+          "circle-color": "#047857",
+          "circle-opacity": 0.85,
+          "circle-radius": 5,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+        },
+      });
+    };
+
     try {
       map.addControl(
         new NavigationControl({
@@ -56,6 +85,7 @@ export function SpeciesMap({ mapStyleUrl }: SpeciesMapProps) {
         "top-right",
       );
       map.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
+      map.on("load", handleLoad);
     } catch (error) {
       map.remove();
       mapRef.current = null;
@@ -63,10 +93,11 @@ export function SpeciesMap({ mapStyleUrl }: SpeciesMapProps) {
     }
 
     return () => {
+      map.off("load", handleLoad);
       map.remove();
       mapRef.current = null;
     };
-  }, [mapStyleUrl]);
+  }, [mapStyleUrl, observations]);
 
   return (
     <div

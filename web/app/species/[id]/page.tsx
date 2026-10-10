@@ -11,6 +11,7 @@ import {
 import { SpeciesMap } from "@/components/species-map";
 import { environment } from "../../../env";
 import { getSpecies } from "../../species-detail";
+import { getSpeciesObservations } from "../../species-observations";
 
 interface SpeciesPageProps {
   params: Promise<{
@@ -38,6 +39,11 @@ export default async function SpeciesPage({ params }: SpeciesPageProps) {
   if (response.status === "not-found") {
     notFound();
   }
+
+  const observationsResponse =
+    response.status === "success"
+      ? await getSpeciesObservations(id)
+      : { status: "unavailable" as const };
 
   return (
     <main className="min-h-svh px-6 py-12 sm:py-20">
@@ -110,7 +116,14 @@ export default async function SpeciesPage({ params }: SpeciesPageProps) {
               <p className="mt-2 mb-5 text-sm leading-relaxed text-stone-600">
                 Explore the geographic context for observations of this species.
               </p>
-              <SpeciesMap mapStyleUrl={environment.NEXT_PUBLIC_MAP_STYLE_URL} />
+              <SpeciesMap
+                mapStyleUrl={environment.NEXT_PUBLIC_MAP_STYLE_URL}
+                observations={
+                  observationsResponse.status === "success"
+                    ? observationsResponse.observations
+                    : undefined
+                }
+              />
             </section>
           </>
         )}
