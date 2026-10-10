@@ -31,6 +31,7 @@ const polandBounds: [[number, number], [number, number]] = [
 const observationsSourceId = "species-observations";
 const observationsLayerId = "species-observation-points";
 const minimumObservationFetchZoom = 7;
+const observationFetchDebounceMs = 300;
 const emptyObservationFeatureCollection = {
   type: "FeatureCollection" as const,
   features: [],
@@ -69,6 +70,9 @@ export function SpeciesMap({
     });
 
     mapRef.current = map;
+    let observationFetchTimeout: ReturnType<typeof setTimeout> | undefined;
+    let activeObservationRequest: AbortController | null = null;
+    let latestObservationRequestId = 0;
     const initialObservations =
       observations ?? emptyObservationFeatureCollection;
 
@@ -79,7 +83,23 @@ export function SpeciesMap({
       map.getSource<GeoJSONSource>(observationsSourceId)?.setData(data);
     };
 
-    const fetchObservationsForCurrentBounds = async () => {
+    const invalidateObservationRequest = () => {
+      latestObservationRequestId += 1;
+      activeObservationRequest?.abort();
+      activeObservationRequest = null;
+
+      if (observationFetchTimeout !== undefined) {
+        clearTimeout(observationFetchTimeout);
+        observationFetchTimeout = undefined;
+      }
+
+      return latestObservationRequestId;
+    };
+
+    const fetchObservationsForCurrentBounds = async (requestId: number) => {
+      const requestController = new AbortController();
+      activeObservationRequest = requestController;
+
       try {
         const bounds = map.getBounds();
         const url = new URL(
@@ -98,7 +118,10 @@ export function SpeciesMap({
         );
         url.searchParams.set("limit", maximumMapObservations);
 
-        const response = await fetch(url, { cache: "no-store" });
+        const response = await fetch(url, {
+          cache: "no-store",
+          signal: requestController.signal,
+        });
 
         if (!response.ok) {
           return;
@@ -110,6 +133,8 @@ export function SpeciesMap({
 
         if (
           !nextObservations.success ||
+          requestController.signal.aborted ||
+          requestId !== latestObservationRequestId ||
           mapRef.current !== map ||
           map.getZoom() < minimumObservationFetchZoom
         ) {
@@ -117,18 +142,31 @@ export function SpeciesMap({
         }
 
         setObservationData(nextObservations.data);
-      } catch {
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
         // Loading and unavailable states are introduced in a later step.
+      } finally {
+        if (activeObservationRequest === requestController) {
+          activeObservationRequest = null;
+        }
       }
     };
 
     const handleMoveEnd = () => {
+      const requestId = invalidateObservationRequest();
+
       if (map.getZoom() < minimumObservationFetchZoom) {
         setObservationData(initialObservations);
         return;
       }
 
-      void fetchObservationsForCurrentBounds();
+      observationFetchTimeout = setTimeout(() => {
+        observationFetchTimeout = undefined;
+        void fetchObservationsForCurrentBounds(requestId);
+      }, observationFetchDebounceMs);
     };
 
     const handleLoad = () => {
@@ -168,6 +206,7 @@ export function SpeciesMap({
     }
 
     return () => {
+      invalidateObservationRequest();
       map.off("load", handleLoad);
       map.off("moveend", handleMoveEnd);
       map.remove();
@@ -178,7 +217,7 @@ export function SpeciesMap({
   return (
     <div
       aria-label="Interactive map of Poland"
-      className="h-[28rem] w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-100 shadow-sm"
+      className="h-112 w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-100 shadow-sm"
       ref={containerRef}
       role="region"
     />
