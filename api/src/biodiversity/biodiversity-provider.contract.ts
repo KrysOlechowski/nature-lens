@@ -3,6 +3,16 @@ export interface SpeciesSearchProvider<TResult> {
   searchSpecies(query: string): Promise<TResult[]>;
 }
 
+export interface TaxonMatchRequest {
+  scientificName: string;
+  rank: string;
+}
+
+export interface TaxonMatchProvider<TResult> {
+  readonly providerName: string;
+  matchTaxon(request: TaxonMatchRequest): Promise<TResult>;
+}
+
 export interface ObservationPageRequest {
   page: number;
   perPage: number;

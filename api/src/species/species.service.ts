@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { ObservationPageRequest } from "../biodiversity/biodiversity-provider.contract.js";
 import {
   INATURALIST_OBSERVATION_PROVIDER,
@@ -14,6 +14,8 @@ import {
   type ObservationBoundingBox,
 } from "./observation.repository.js";
 import type { SpeciesDetail } from "./species-detail.model.js";
+import type { SpeciesProviderMappingResolution } from "./species-identity.model.js";
+import { SpeciesIdentityResolver } from "./species-identity.resolver.js";
 import type {
   SpeciesObservationGeoJsonFeature,
   SpeciesObservationGeoJsonFeatureCollection,
@@ -24,11 +26,16 @@ import type {
   StoredSpeciesObservationPage,
 } from "./species-observation.model.js";
 import { mapINaturalistSpecies } from "./inaturalist-species.mapper.js";
-import type { SpeciesSearchResult } from "./species-search-result.model.js";
+import type {
+  NormalizedSpecies,
+  SpeciesSearchResult,
+} from "./species-search-result.model.js";
 import { SpeciesRepository } from "./species.repository.js";
 
 @Injectable()
 export class SpeciesService {
+  private readonly logger = new Logger(SpeciesService.name);
+
   constructor(
     @Inject(INATURALIST_SPECIES_SEARCH_PROVIDER)
     private readonly speciesSearchProvider: INaturalistSpeciesSearchProvider,
@@ -36,6 +43,7 @@ export class SpeciesService {
     private readonly observationProvider: INaturalistObservationProvider,
     private readonly speciesRepository: SpeciesRepository,
     private readonly observationRepository: ObservationRepository,
+    private readonly speciesIdentityResolver: SpeciesIdentityResolver,
   ) {}
 
   async searchSpecies(query: string): Promise<SpeciesSearchResult[]> {
@@ -44,11 +52,36 @@ export class SpeciesService {
     const normalizedSpecies = providerResults.map(mapINaturalistSpecies);
 
     return Promise.all(
-      normalizedSpecies.map(async (species) => ({
-        ...species,
-        id: await this.speciesRepository.upsert(species),
-      })),
+      normalizedSpecies.map(async (species) => {
+        const equivalentMapping = await this.resolveEquivalentMapping(species);
+        const id = equivalentMapping
+          ? await this.speciesRepository.upsert(species, equivalentMapping)
+          : await this.speciesRepository.upsert(species);
+
+        return {
+          ...species,
+          id,
+        };
+      }),
     );
+  }
+
+  private async resolveEquivalentMapping(
+    species: NormalizedSpecies,
+  ): Promise<SpeciesProviderMappingResolution | null> {
+    try {
+      return await this.speciesIdentityResolver.resolve(species);
+    } catch (error) {
+      if (error instanceof ProviderError) {
+        this.logger.warn(
+          `${error.provider} taxon identity resolution failed (${error.kind}); continuing without a provider mapping`,
+        );
+
+        return null;
+      }
+
+      throw error;
+    }
   }
 
   async getSpecies(speciesId: string): Promise<SpeciesDetail> {

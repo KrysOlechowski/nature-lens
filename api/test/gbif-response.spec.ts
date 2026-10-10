@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { GBIFIntegrationError } from "../src/gbif/gbif-integration.error.js";
-import { parseGBIFOccurrencesResponse } from "../src/gbif/gbif-response.schema.js";
+import {
+  parseGBIFOccurrencesResponse,
+  parseGBIFTaxonMatchResponse,
+} from "../src/gbif/gbif-response.schema.js";
 
 describe("parseGBIFOccurrencesResponse", () => {
   it("validates pagination and the occurrence fields used by the application", () => {
@@ -101,6 +104,115 @@ describe("parseGBIFOccurrencesResponse", () => {
           cause: expect.any(z.ZodError),
           kind: "invalid-response",
           message: "GBIF returned an invalid occurrences response",
+          provider: "GBIF",
+        }),
+      );
+    },
+  );
+});
+
+describe("parseGBIFTaxonMatchResponse", () => {
+  it("keeps only the matched usage, accepted usage, synonym, and diagnostics", () => {
+    const response = {
+      usage: {
+        key: "2441185",
+        name: "Bos bonasus Linnaeus, 1758",
+        canonicalName: "Bos bonasus",
+        rank: "SPECIES",
+        status: "SYNONYM",
+      },
+      acceptedUsage: {
+        key: "2441184",
+        name: "Bison bonasus (Linnaeus, 1758)",
+        canonicalName: "Bison bonasus",
+        rank: "SPECIES",
+      },
+      classification: [{ key: "1", name: "Animalia", rank: "KINGDOM" }],
+      diagnostics: {
+        matchType: "EXACT",
+        confidence: 98,
+        timeTaken: 2,
+      },
+      synonym: true,
+    };
+
+    expect(parseGBIFTaxonMatchResponse(response)).toEqual({
+      usage: {
+        key: 2_441_185,
+        canonicalName: "Bos bonasus",
+        rank: "SPECIES",
+      },
+      acceptedUsage: {
+        key: 2_441_184,
+        canonicalName: "Bison bonasus",
+        rank: "SPECIES",
+      },
+      diagnostics: {
+        matchType: "EXACT",
+        confidence: 98,
+      },
+      synonym: true,
+    });
+  });
+
+  it("accepts a controlled no-match response without usages", () => {
+    expect(
+      parseGBIFTaxonMatchResponse({
+        diagnostics: {
+          matchType: "NONE",
+          confidence: 100,
+        },
+        synonym: false,
+      }),
+    ).toEqual({
+      diagnostics: {
+        matchType: "NONE",
+        confidence: 100,
+      },
+      synonym: false,
+    });
+  });
+
+  it.each([
+    [
+      "a synonym without an accepted usage",
+      {
+        usage: {
+          key: "2441185",
+          canonicalName: "Bos bonasus",
+          rank: "SPECIES",
+        },
+        diagnostics: { matchType: "EXACT", confidence: 98 },
+        synonym: true,
+      },
+    ],
+    [
+      "a COL XR key in the legacy Backbone contract",
+      {
+        usage: {
+          key: "MLPT",
+          canonicalName: "Bos bonasus",
+          rank: "SPECIES",
+        },
+        diagnostics: { matchType: "EXACT", confidence: 98 },
+        synonym: false,
+      },
+    ],
+    [
+      "a non-NONE match without a usage",
+      {
+        diagnostics: { matchType: "FUZZY", confidence: 80 },
+        synonym: false,
+      },
+    ],
+  ])(
+    "reports %s as a controlled integration error",
+    (_description, response) => {
+      expect(() => parseGBIFTaxonMatchResponse(response)).toThrowError(
+        expect.objectContaining<Partial<GBIFIntegrationError>>({
+          cause: expect.any(z.ZodError),
+          kind: "invalid-response",
+          message: "GBIF returned an invalid taxon match",
           provider: "GBIF",
         }),
       );

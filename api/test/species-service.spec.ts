@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { Logger, NotFoundException } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   INaturalistObservationProvider,
@@ -7,6 +7,7 @@ import type {
 import { ProviderError } from "../src/provider-errors/provider.error.js";
 import type { ObservationRepository } from "../src/species/observation.repository.js";
 import type { StoredSpeciesObservationPage } from "../src/species/species-observation.model.js";
+import type { SpeciesIdentityResolver } from "../src/species/species-identity.resolver.js";
 import type { SpeciesRepository } from "../src/species/species.repository.js";
 import { SpeciesService } from "../src/species/species.service.js";
 
@@ -43,6 +44,7 @@ function createStoredPage(
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("SpeciesService", () => {
@@ -64,11 +66,24 @@ describe("SpeciesService", () => {
       upsert,
     } as Pick<SpeciesRepository, "upsert"> as SpeciesRepository;
     const observationRepository = {} as ObservationRepository;
+    const equivalentMapping = {
+      provider: "GBIF",
+      externalId: "2441184",
+      resolutionMethod: "gbif-backbone-match-v2",
+      resolutionContext: {
+        matchedUsageKey: "2441185",
+      },
+    };
+    const resolve = vi.fn().mockResolvedValue(equivalentMapping);
     const service = new SpeciesService(
       speciesSearchProvider,
       {} as INaturalistObservationProvider,
       speciesRepository,
       observationRepository,
+      { resolve } as Pick<
+        SpeciesIdentityResolver,
+        "resolve"
+      > as SpeciesIdentityResolver,
     );
 
     await expect(service.searchSpecies("bison")).resolves.toEqual([
@@ -87,7 +102,7 @@ describe("SpeciesService", () => {
       },
     ]);
     expect(searchSpecies).toHaveBeenCalledWith("bison");
-    expect(upsert).toHaveBeenCalledWith({
+    const normalizedSpecies = {
       commonName: "Wisent",
       displayName: "Wisent",
       scientificName: "Bos bonasus",
@@ -98,7 +113,48 @@ describe("SpeciesService", () => {
       taxonomy: {
         rank: "species",
       },
-    });
+    };
+
+    expect(resolve).toHaveBeenCalledWith(normalizedSpecies);
+    expect(upsert).toHaveBeenCalledWith(normalizedSpecies, equivalentMapping);
+  });
+
+  it("keeps iNaturalist search available when GBIF identity resolution fails", async () => {
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const providerSpecies = {
+      externalId: 1696537,
+      scientificName: "Bos bonasus",
+      preferredCommonName: "Wisent",
+      rank: "species",
+    };
+    const searchSpecies = vi.fn().mockResolvedValue([providerSpecies]);
+    const resolve = vi.fn().mockRejectedValue(
+      new ProviderError("GBIF timed out", {
+        kind: "timeout",
+        provider: "GBIF",
+      }),
+    );
+    const upsert = vi.fn().mockResolvedValue("42");
+    const service = new SpeciesService(
+      {
+        providerName: "iNaturalist",
+        searchSpecies,
+      } as INaturalistSpeciesSearchProvider,
+      {} as INaturalistObservationProvider,
+      { upsert } as Pick<SpeciesRepository, "upsert"> as SpeciesRepository,
+      {} as ObservationRepository,
+      { resolve } as Pick<
+        SpeciesIdentityResolver,
+        "resolve"
+      > as SpeciesIdentityResolver,
+    );
+
+    await expect(service.searchSpecies("bison")).resolves.toHaveLength(1);
+    expect(upsert).toHaveBeenCalledOnce();
+    expect(upsert.mock.calls[0]).toHaveLength(1);
+    expect(Logger.prototype.warn).toHaveBeenCalledWith(
+      "GBIF taxon identity resolution failed (timeout); continuing without a provider mapping",
+    );
   });
 
   it("returns a persisted species by its application identifier", async () => {
@@ -116,6 +172,7 @@ describe("SpeciesService", () => {
       {} as INaturalistObservationProvider,
       { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
       {} as ObservationRepository,
+      {} as SpeciesIdentityResolver,
     );
 
     await expect(service.getSpecies("42")).resolves.toBe(species);
@@ -129,6 +186,7 @@ describe("SpeciesService", () => {
       {} as INaturalistObservationProvider,
       { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
       {} as ObservationRepository,
+      {} as SpeciesIdentityResolver,
     );
 
     await expect(service.getSpecies("42")).rejects.toBeInstanceOf(
@@ -179,6 +237,7 @@ describe("SpeciesService", () => {
         ObservationRepository,
         "findPage" | "replacePage"
       > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
     );
 
     await expect(
@@ -348,6 +407,7 @@ describe("SpeciesService", () => {
         ObservationRepository,
         "findPage" | "replacePage"
       > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
     );
 
     await expect(
@@ -372,6 +432,7 @@ describe("SpeciesService", () => {
         ObservationRepository,
         "findWithinBoundingBox"
       > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
     );
     const boundingBox = {
       west: 20,
@@ -424,6 +485,7 @@ describe("SpeciesService", () => {
         ObservationRepository,
         "findWithinBoundingBox"
       > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
     );
 
     await expect(
@@ -462,5 +524,6 @@ function createObservationService({
       ObservationRepository,
       "findPage" | "replacePage"
     > as ObservationRepository,
+    {} as SpeciesIdentityResolver,
   );
 }

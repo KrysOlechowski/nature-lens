@@ -11,6 +11,7 @@ import {
 import type { DatabaseService } from "../src/database/database.service.js";
 import { ObservationRepository } from "../src/species/observation.repository.js";
 import type { SpeciesObservation } from "../src/species/species-observation.model.js";
+import type { SpeciesProviderMappingResolution } from "../src/species/species-identity.model.js";
 import type { NormalizedSpecies } from "../src/species/species-search-result.model.js";
 import {
   SpeciesProviderMappingConflictError,
@@ -66,6 +67,25 @@ function createObservation(
       provider: "iNaturalist",
       externalId: "405566287",
       url: "https://www.inaturalist.org/observations/405566287",
+    },
+    ...overrides,
+  };
+}
+
+function createGBIFResolution(
+  overrides: Partial<SpeciesProviderMappingResolution> = {},
+): SpeciesProviderMappingResolution {
+  return {
+    provider: "GBIF",
+    externalId: "2441184",
+    resolutionMethod: "gbif-backbone-match-v2",
+    resolutionContext: {
+      checklistKey: "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c",
+      matchedUsageKey: "2441185",
+      acceptedUsageKey: "2441184",
+      synonym: true,
+      matchType: "EXACT",
+      confidence: 98,
     },
     ...overrides,
   };
@@ -276,6 +296,80 @@ describe("database persistence", () => {
         taxon_rank: "species",
       },
     ]);
+  });
+
+  it("associates clear provider equivalents with one species identity", async () => {
+    const repository = new SpeciesRepository(createTransactionDatabase(client));
+    const resolution = createGBIFResolution();
+    const speciesId = await repository.upsert(createSpecies(), resolution);
+
+    const result = await client.query<{
+      external_id: string;
+      provider: string;
+      resolution_context: Record<string, unknown>;
+      resolution_method: string;
+      species_id: string;
+    }>(
+      `
+        SELECT
+          species_id::text,
+          provider,
+          external_id,
+          resolution_method,
+          resolution_context
+        FROM species_provider_mappings
+        WHERE species_id = $1
+        ORDER BY provider, external_id
+      `,
+      [speciesId],
+    );
+
+    expect(result.rows).toHaveLength(2);
+    expect(
+      result.rows.every((mapping) => mapping.species_id === speciesId),
+    ).toBe(true);
+    expect(result.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          species_id: speciesId,
+          provider: "GBIF",
+          external_id: "2441184",
+          resolution_method: "gbif-backbone-match-v2",
+          resolution_context: expect.objectContaining({
+            checklistKey: "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c",
+            matchedUsageKey: "2441185",
+            acceptedUsageKey: "2441184",
+            synonym: true,
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("does not merge ambiguous taxa by scientific name alone", async () => {
+    const repository = new SpeciesRepository(createTransactionDatabase(client));
+    const firstId = await repository.upsert(createSpecies());
+    const secondId = await repository.upsert(
+      createSpecies({
+        source: {
+          provider: "other-provider",
+          externalId: "ambiguous-1",
+        },
+      }),
+    );
+
+    expect(secondId).not.toBe(firstId);
+
+    const result = await client.query<{ species_count: string }>(
+      `
+        SELECT count(*)::text AS species_count
+        FROM species
+        WHERE scientific_name = $1
+      `,
+      ["Alces alces"],
+    );
+
+    expect(result.rows[0]?.species_count).toBe("2");
   });
 
   it("atomically upserts an idempotent observation batch", async () => {
@@ -661,7 +755,11 @@ describe("database persistence", () => {
 
   it("rolls back species changes when a provider mapping conflicts", async () => {
     const repository = new SpeciesRepository(createTransactionDatabase(client));
-    const mooseId = await repository.upsert(createSpecies());
+    const conflictingResolution = createGBIFResolution();
+    const mooseId = await repository.upsert(
+      createSpecies(),
+      conflictingResolution,
+    );
     const bison = createSpecies({
       scientificName: "Bos bonasus",
       commonName: "Wisent",
@@ -674,14 +772,13 @@ describe("database persistence", () => {
     const bisonId = await repository.upsert(bison);
 
     await expect(
-      repository.upsert({
-        ...bison,
-        displayName: "Changed name",
-        source: {
-          provider: "iNaturalist",
-          externalId: "522194",
+      repository.upsert(
+        {
+          ...bison,
+          displayName: "Changed name",
         },
-      }),
+        conflictingResolution,
+      ),
     ).rejects.toBeInstanceOf(SpeciesProviderMappingConflictError);
 
     const result = await client.query<{
@@ -698,7 +795,7 @@ describe("database persistence", () => {
           AND mapping.provider = $2
           AND mapping.external_id = $3
       `,
-      [bisonId, "iNaturalist", "522194"],
+      [bisonId, "GBIF", "2441184"],
     );
 
     expect(result.rows).toEqual([

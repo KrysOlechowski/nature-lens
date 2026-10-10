@@ -41,6 +41,7 @@ describe("GBIFAdapter", () => {
     expect(request?.url.origin).toBe("https://api.gbif.org");
     expect(request?.url.pathname).toBe("/v1/occurrence/search");
     expect(Object.fromEntries(request?.url.searchParams ?? [])).toEqual({
+      checklistKey: "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c",
       country: "PL",
       limit: "50",
       offset: "100",
@@ -95,6 +96,95 @@ describe("GBIFAdapter", () => {
       ],
     });
   });
+
+  it("matches a taxon in the same explicit GBIF Backbone used by occurrences", async () => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue({
+      usage: {
+        key: "2441185",
+        canonicalName: "Bos bonasus",
+        rank: "SPECIES",
+      },
+      acceptedUsage: {
+        key: "2441184",
+        canonicalName: "Bison bonasus",
+        rank: "SPECIES",
+      },
+      diagnostics: {
+        matchType: "EXACT",
+        confidence: 98,
+      },
+      synonym: true,
+    });
+
+    await expect(
+      adapter.matchTaxon({ scientificName: " Bos bonasus ", rank: "species" }),
+    ).resolves.toEqual({
+      usage: {
+        externalId: 2_441_185,
+        scientificName: "Bos bonasus",
+        rank: "SPECIES",
+      },
+      acceptedUsage: {
+        externalId: 2_441_184,
+        scientificName: "Bison bonasus",
+        rank: "SPECIES",
+      },
+      diagnostics: {
+        matchType: "EXACT",
+        confidence: 98,
+      },
+      synonym: true,
+    });
+
+    const request = getJson.mock.calls[0]?.[0];
+
+    expect(request?.url.pathname).toBe("/v2/species/match");
+    expect(Object.fromEntries(request?.url.searchParams ?? [])).toEqual({
+      checklistKey: "d7dddbf4-2cf0-4f39-9b2a-bb099caae36c",
+      scientificName: "Bos bonasus",
+      taxonRank: "species",
+    });
+  });
+
+  it("maps a controlled GBIF no-match response", async () => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue({
+      diagnostics: {
+        matchType: "NONE",
+        confidence: 100,
+      },
+      synonym: false,
+    });
+
+    await expect(
+      adapter.matchTaxon({
+        scientificName: "Definitelynotarealtaxonxyz",
+        rank: "species",
+      }),
+    ).resolves.toEqual({
+      diagnostics: {
+        matchType: "NONE",
+        confidence: 100,
+      },
+      synonym: false,
+    });
+  });
+
+  it.each([
+    ["scientific name", { scientificName: "", rank: "species" }],
+    ["rank", { scientificName: "Bos bonasus", rank: " " }],
+  ])(
+    "rejects a taxon match without a valid %s",
+    async (expectedField, request) => {
+      const { adapter, getJson } = createAdapter();
+
+      await expect(adapter.matchTaxon(request)).rejects.toThrowError(
+        `GBIF taxon match requires a ${expectedField}`,
+      );
+      expect(getJson).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ["taxon key", 0, { page: 1, perPage: 300 }],

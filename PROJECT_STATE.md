@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** the first complete iNaturalist-backed vertical slice works, and iNaturalist and GBIF now expose capability-specific provider contracts
+> **Status:** the first complete iNaturalist-backed vertical slice works, and confident GBIF Backbone matches now share application-owned species identities with iNaturalist taxa
 >
 > **Current phase:** Phase 6 · GBIF, provenance, and first analyses
 >
-> **Last completed step:** 38 · Generalize biodiversity provider contract
+> **Last completed step:** 39 · Resolve species identity across providers
 >
-> **Current step:** 39 · Resolve species identity across providers
+> **Current step:** 40 · Preserve source provenance across providers
 >
-> **Next step:** 40 · Preserve source provenance across providers
+> **Next step:** 41 · Add conservative cross-provider deduplication
 
 ## What currently works
 
@@ -27,7 +27,9 @@
 - A controlled backend HTTP client provides JSON `GET`, configurable timeouts, provider-aware logging, and categorized transport failures.
 - The iNaturalist adapter searches active species and retrieves explicit observation pages restricted to Poland. Responses are runtime-validated before being mapped into small integration types.
 - The GBIF adapter retrieves paginated occurrence records restricted to Poland, validates only the provider fields required by the application, and maps them into the existing provider-independent observation shape.
-- Biodiversity provider contracts are split by species-search and observation capabilities. iNaturalist implements both capabilities, while GBIF implements observations only.
+- Biodiversity provider contracts are split by species-search, taxon-match, and observation capabilities. iNaturalist implements search and observations, while GBIF implements matching and observations.
+- GBIF also exposes a taxon-match capability pinned to the legacy GBIF Backbone checklist used explicitly by its occurrence adapter.
+- Species identity resolution links exact, high-confidence GBIF Backbone matches to iNaturalist taxa, resolves synonyms to accepted GBIF usages, and leaves uncertain matches separate.
 - Observation providers accept one Nature Lens page-based pagination contract and translate it into provider-specific parameters such as `page`/`per_page` or `limit`/`offset`.
 - `SpeciesService` returns provider-independent Nature Lens species and observation models, preserving source provenance, temporal precision, public coordinate accuracy, and provider privacy restrictions.
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
@@ -40,7 +42,7 @@
 - Database schema is versioned with `node-pg-migrate` TypeScript migrations in `api/migrations`; migrations run explicitly rather than during API startup.
 - Local development uses the Supabase Session pooler for IPv4 compatibility. Its connection string remains in the ignored `api/.env` file.
 - PostGIS is installed in the dedicated `extensions` schema, and spatial functions and operators are schema-qualified.
-- `species` stores application-owned identities. `species_provider_mappings` keeps provider-specific external IDs outside the core species model.
+- `species` stores application-owned identities without treating a scientific name as unique. `species_provider_mappings` keeps provider-specific external IDs and compact identity-resolution audit context outside the core species model.
 - `observations` stores normalized dates, optional timestamps, optional WGS84 `geometry(Point, 4326)` locations, public accuracy and privacy information, provider provenance, and source URLs.
 - Observation-page synchronization tables preserve exact page membership, ordering, provider totals, and freshness independently of observation record timestamps.
 - Provider-scoped observation identifiers are unique. Species lookups use a B-tree index, and public-location viewport queries use a GiST index.
@@ -58,7 +60,10 @@
 - GBIF exposes public occurrence coordinates without an iNaturalist-equivalent privacy contract. Their privacy remains `unknown`; missing coordinates never imply obscurity, and date-times without an explicit offset never receive an invented timezone.
 - Application services and normalized models remain provider-independent while retaining provider name, external ID, and source URL.
 - Species use internal `bigint` identities represented as strings in public JSON. Provider mappings are written transactionally and cannot be silently reassigned to another species.
-- Using `scientific_name` as the species upsert conflict key is an explicit single-provider simplification, not the final cross-provider identity-resolution strategy; step 39 addresses that problem.
+- Species upserts are keyed by provider mapping rather than scientific name. Name normalization is only one comparison signal and never merges taxa by itself.
+- Automatic GBIF identity matches require an exact match, confidence of at least 95, compatible taxon ranks, and the normalized queried name matching the returned usage. Synonyms store the accepted usage key while audit context retains both matched and accepted keys.
+- GBIF taxon matching and occurrence queries explicitly use legacy Backbone checklist `d7dddbf4-2cf0-4f39-9b2a-bb099caae36c`; switching taxonomic keyspaces requires a deliberate migration.
+- Provider mapping writes use deterministic transaction-scoped advisory locks so concurrent identity resolution cannot create duplicate application species or reassign an existing mapping.
 - PostgreSQL access uses the low-level `pg` driver so persistence and PostGIS queries remain explicit; no generic repository abstraction or ORM is introduced.
 - Observation identity is provider-scoped. Cross-provider deduplication is intentionally deferred until provenance and identity behavior are implemented.
 - Location availability, privacy, and precision are separate concepts. Missing coordinates do not imply obscurity, and restricted locations never fall back to more precise non-public accuracy.
@@ -79,7 +84,7 @@
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
 - CI and production deployment are not configured.
 - Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider.
-- The GBIF observation capability is registered but is not yet used by `SpeciesService`; cross-provider identity resolution and orchestration remain future work.
+- The GBIF observation capability is registered but is not yet used by `SpeciesService`; multi-provider observation orchestration remains future work.
 - Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
@@ -114,12 +119,12 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 38.
-- `pnpm lint`: passed after step 38.
-- `pnpm --filter api typecheck`: passed after step 38.
-- `WEB_ORIGIN=http://localhost:3000 pnpm --filter api test`: passed all 126 API unit tests after step 38.
-- `pnpm test:integration`: last full run passed all 9 PostgreSQL/PostGIS persistence tests.
-- The API production build passed after step 38.
+- `pnpm format:check`: passed after step 39.
+- `pnpm lint`: passed after step 39.
+- `pnpm --filter api typecheck`: passed after step 39.
+- `WEB_ORIGIN=http://localhost:3000 pnpm --filter api test`: passed all 143 API unit tests after step 39.
+- `pnpm test:integration`: passed all 11 PostgreSQL/PostGIS persistence tests after step 39.
+- The API production build passed after step 39.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
-- `git diff --check`: passed after step 38.
-- Step 38 Definition of Done is satisfied: provider capabilities and DI tokens are explicit, and `SpeciesService` no longer depends on a concrete provider adapter class.
+- `git diff --check`: passed after step 39.
+- Step 39 Definition of Done is satisfied: clear iNaturalist/GBIF equivalents share one `species_id`, synonym-to-accepted decisions remain auditable, and ambiguous cases are not merged automatically.
