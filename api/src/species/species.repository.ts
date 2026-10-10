@@ -14,6 +14,10 @@ interface ProviderExternalIdRow {
   external_id: string;
 }
 
+interface SpeciesExistsRow {
+  exists: boolean;
+}
+
 export class SpeciesProviderMappingConflictError extends Error {
   constructor() {
     super("Provider species identifier is already mapped to another species");
@@ -98,5 +102,20 @@ export class SpeciesRepository {
     );
 
     return result.rows[0]?.external_id ?? null;
+  }
+
+  async exists(speciesId: string): Promise<boolean> {
+    const result = await this.database.query<SpeciesExistsRow>(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM species
+          WHERE id = $1
+        ) AS exists
+      `,
+      [speciesId],
+    );
+
+    return result.rows[0]?.exists ?? false;
   }
 }

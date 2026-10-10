@@ -6,8 +6,16 @@ import {
 import { environment } from "../config/environment.js";
 import { ProviderError } from "../provider-errors/provider.error.js";
 import { mapINaturalistObservation } from "./inaturalist-observation.mapper.js";
-import { ObservationRepository } from "./observation.repository.js";
+import {
+  ObservationRepository,
+  type ObservationBoundingBox,
+} from "./observation.repository.js";
 import type {
+  SpeciesObservationGeoJsonFeature,
+  SpeciesObservationGeoJsonFeatureCollection,
+} from "./species-observation-geojson.model.js";
+import type {
+  SpeciesObservation,
   SpeciesObservationPage,
   StoredSpeciesObservationPage,
 } from "./species-observation.model.js";
@@ -106,6 +114,31 @@ export class SpeciesService {
 
     return toObservationPage(synchronizedPage, "provider-sync", "fresh");
   }
+
+  async getObservationsWithinBoundingBox(
+    speciesId: string,
+    boundingBox: ObservationBoundingBox,
+    limit: number,
+  ): Promise<SpeciesObservationGeoJsonFeatureCollection> {
+    if (!(await this.speciesRepository.exists(speciesId))) {
+      throw new NotFoundException("Species was not found");
+    }
+
+    const result = await this.observationRepository.findWithinBoundingBox(
+      speciesId,
+      boundingBox,
+      limit,
+    );
+
+    return {
+      type: "FeatureCollection",
+      features: result.observations.map(toGeoJsonFeature),
+      metadata: {
+        datasetScope: "locally-synchronized",
+        truncated: result.truncated,
+      },
+    };
+  }
 }
 
 function isFresh(lastSuccessfulSyncAt: string): boolean {
@@ -130,6 +163,36 @@ function toObservationPage(
       servedFrom,
       freshness,
       lastSuccessfulSyncAt: page.lastSuccessfulSyncAt,
+    },
+  };
+}
+
+function toGeoJsonFeature(
+  observation: SpeciesObservation,
+): SpeciesObservationGeoJsonFeature {
+  if (!observation.location) {
+    throw new Error("Spatial observation query returned a missing location");
+  }
+
+  return {
+    type: "Feature",
+    geometry: {
+      type: "Point",
+      coordinates: [
+        observation.location.longitude,
+        observation.location.latitude,
+      ],
+    },
+    properties: {
+      observedOn: observation.observedOn,
+      observedAt: observation.observedAt,
+      accuracyMeters: observation.location.accuracyMeters,
+      locationPrecision: observation.location.precision,
+      locationPrivacy: observation.locationPrivacy,
+      source: {
+        provider: observation.source.provider,
+        url: observation.source.url,
+      },
     },
   };
 }

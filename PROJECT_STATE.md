@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded spatial observation queries, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
-> **Current phase:** Phase 4 · Persistence, synchronization, and PostGIS
+> **Current phase:** Phase 5 · First working frontend product
 >
-> **Last completed step:** 26 · Query observations by bounding box with PostGIS
+> **Last completed step:** 27 · Return observations as GeoJSON
 >
-> **Current step:** 27 · Return observations as GeoJSON
+> **Current step:** 28 · Initialize shadcn/ui foundation
 >
-> **Next step:** 28 · Initialize shadcn/ui foundation
+> **Next step:** 29 · Build species search UI
 
 ## What currently works
 
@@ -51,6 +51,7 @@
 - Species search atomically upserts each normalized species and its provider mapping, then includes the internal string ID in the response. Repeated searches update mutable descriptive fields without creating duplicates.
 - `GET /api/species/:id/observations?page=...&perPage=...` accepts the application-owned species ID and uses an exact-page read-through cache in PostgreSQL. Fresh pages avoid iNaturalist; missing or stale pages are normalized and atomically replaced after a provider request.
 - `ObservationRepository` can query one species from local PostgreSQL by a WGS84 bounding box, excludes records without public coordinates, includes points on the boundary, orders results deterministically by recency, and enforces a maximum of 1,000 records.
+- `GET /api/species/:id/observations?bbox=west,south,east,north&limit=...` returns locally synchronized observations as a GeoJSON `FeatureCollection<Point>` with longitude-first coordinates, bounded properties, explicit local-dataset scope, and local-result truncation metadata.
 - Observation responses expose runtime metadata identifying a local-database hit or provider synchronization, the freshness state, and the last successful synchronization timestamp.
 - When refresh of a stale page fails with a controlled provider error, the endpoint returns the stale persisted page; a missing page still returns the provider error.
 - iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
@@ -99,7 +100,9 @@
 - Observation provenance is stored as a nonblank provider, provider-scoped external identifier, and source URL. A unique constraint on `(provider, external_id)` prevents duplicate observations from the same provider while allowing different providers to use the same external ID.
 - The observation location GiST index supports bounding-box queries, while the `species_id` B-tree index supports species-observation lookups. No date index is introduced before a concrete date-filtering query exists.
 - Bounding-box reads use an explicit `OPERATOR(extensions.&&)` GiST prefilter followed by `extensions.ST_Intersects` against an SRID 4326 envelope. PostGIS operators and functions are schema-qualified because the extension is installed outside `public`.
-- Bounding-box results are ordered by observation date, timestamp, and descending internal ID, then capped at 1,000 records. Spatial clustering or sampling is deferred until map usage creates a concrete requirement.
+- Bounding-box results are ordered by observation date, timestamp, and descending internal ID, then capped at 1,000 returned records. The query reads one additional row after the same deterministic ordering to report whether the local result was truncated. Spatial clustering or sampling is deferred until map usage creates a concrete requirement.
+- GeoJSON bounding-box reads never contact a provider. The top-level `metadata.datasetScope` value `locally-synchronized` states that provider coverage may be incomplete, while `metadata.truncated` reports only whether the requested limit cut off additional matching local records.
+- Observation GeoJSON properties retain normalized dates, public-location accuracy and privacy context, and provider name plus source URL. Provider-specific payloads and external observation identifiers are not exposed.
 - Deleting a species referenced by observations is restricted so observation records cannot become detached from their normalized species identity.
 - The first vertical slice is species search and real observations from Poland on a map, initially using iNaturalist. External data must be runtime-validated and normalized, and provider coordinate restrictions must be preserved.
 - Database integration tests use Testcontainers with the `postgis/postgis:17-3.5-alpine` image. The image is explicitly run as `linux/amd64`, matching its published architecture and allowing Docker Desktop emulation on Apple silicon.
@@ -146,6 +149,7 @@
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
 - Observation synchronization does not coalesce concurrent cache misses; simultaneous requests for the same stale page can each call the provider. There is no background refresh or whole-species synchronization.
+- Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and must not be interpreted as a complete provider dataset.
 - Node.js 23.3.0 fails to load a Nest CLI dependency. Backend build and runtime checks passed on the locally installed Node.js 22.22.0. The full CLI toolchain, including generators, requires Node.js 22.22.3+ (22.x) or 24.15+ (24.x); runtime version pinning is not configured yet.
 - The agent environment blocks the local ports used by development servers and by Turbopack's CSS processing. The frontend production build passes with webpack; the default Turbopack build must be run in an unrestricted local environment. No application blocker remains.
 
@@ -337,7 +341,14 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm lint`: passed for `web` and `api`.
 - Targeted Prettier check and `git diff --check`: passed.
 - Step 26 Definition of Done is satisfied: region bounding-box queries use normalized local observations through PostGIS and have integration coverage.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding the GeoJSON response.
+- `pnpm --filter api test`: passed all 87 API unit tests, including GeoJSON mapping, bounding-box validation, local-dataset metadata, truncation propagation, and missing-species handling.
+- `pnpm --filter api test:integration`: passed all 9 persistence tests against ephemeral PostgreSQL/PostGIS, including deterministic `limit + 1` truncation detection.
+- `pnpm --filter api build`: passed.
+- `pnpm lint`: passed for `web` and `api`.
+- `pnpm format:check`: passed.
+- Step 27 Definition of Done is satisfied: bounded spatial responses are valid GeoJSON, contain only the required normalized properties, and distinguish local dataset scope from limit-based truncation.
 
 ## Next implementation
 
-Discuss and approve **27 · Return observations as GeoJSON** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **28 · Initialize shadcn/ui foundation** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

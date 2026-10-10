@@ -315,6 +315,82 @@ describe("SpeciesService", () => {
     expect(getObservations).not.toHaveBeenCalled();
     expect(replacePage).not.toHaveBeenCalled();
   });
+
+  it("returns locally synchronized bounding-box observations as GeoJSON", async () => {
+    const exists = vi.fn().mockResolvedValue(true);
+    const findWithinBoundingBox = vi.fn().mockResolvedValue({
+      observations: [normalizedObservation],
+      truncated: true,
+    });
+    const service = new SpeciesService(
+      {} as INaturalistAdapter,
+      { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
+      { findWithinBoundingBox } as Pick<
+        ObservationRepository,
+        "findWithinBoundingBox"
+      > as ObservationRepository,
+    );
+    const boundingBox = {
+      west: 20,
+      south: 51,
+      east: 24,
+      north: 54,
+    };
+
+    await expect(
+      service.getObservationsWithinBoundingBox("42", boundingBox, 100),
+    ).resolves.toEqual({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [23.2064155596, 53.4029839302],
+          },
+          properties: {
+            observedOn: "2026-10-03",
+            observedAt: "2026-10-03T14:45:26.000Z",
+            accuracyMeters: 25_876,
+            locationPrecision: "limited",
+            locationPrivacy: "obscured",
+            source: {
+              provider: "iNaturalist",
+              url: "https://www.inaturalist.org/observations/405566287",
+            },
+          },
+        },
+      ],
+      metadata: {
+        datasetScope: "locally-synchronized",
+        truncated: true,
+      },
+    });
+    expect(exists).toHaveBeenCalledWith("42");
+    expect(findWithinBoundingBox).toHaveBeenCalledWith("42", boundingBox, 100);
+  });
+
+  it("does not query a bounding box when the species is missing", async () => {
+    const exists = vi.fn().mockResolvedValue(false);
+    const findWithinBoundingBox = vi.fn();
+    const service = new SpeciesService(
+      {} as INaturalistAdapter,
+      { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
+      { findWithinBoundingBox } as Pick<
+        ObservationRepository,
+        "findWithinBoundingBox"
+      > as ObservationRepository,
+    );
+
+    await expect(
+      service.getObservationsWithinBoundingBox(
+        "404",
+        { west: 20, south: 51, east: 24, north: 54 },
+        100,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(findWithinBoundingBox).not.toHaveBeenCalled();
+  });
 });
 
 function createObservationService({

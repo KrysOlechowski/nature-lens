@@ -188,6 +188,145 @@ describe("SpeciesController", () => {
     });
   });
 
+  it("returns bounded local observations as GeoJSON", async () => {
+    const getObservationsWithinBoundingBox = vi.fn().mockResolvedValue({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [21.0122, 52.2297],
+          },
+          properties: {
+            observedOn: "2026-10-05",
+            observedAt: "2026-10-05T09:00:00.000Z",
+            accuracyMeters: 10,
+            locationPrecision: "approximate",
+            locationPrivacy: "open",
+            source: {
+              provider: "iNaturalist",
+              url: "https://www.inaturalist.org/observations/405566290",
+            },
+          },
+        },
+      ],
+      metadata: {
+        datasetScope: "locally-synchronized",
+        truncated: true,
+      },
+    });
+    const speciesService = {
+      getObservationsWithinBoundingBox,
+    } as Pick<
+      SpeciesService,
+      "getObservationsWithinBoundingBox"
+    > as SpeciesService;
+    const controller = new SpeciesController(speciesService);
+
+    await expect(
+      controller.getObservations(
+        "1696537",
+        undefined,
+        undefined,
+        "20,51,22,53",
+        undefined,
+      ),
+    ).resolves.toEqual({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [21.0122, 52.2297],
+          },
+          properties: {
+            observedOn: "2026-10-05",
+            observedAt: "2026-10-05T09:00:00.000Z",
+            accuracyMeters: 10,
+            locationPrecision: "approximate",
+            locationPrivacy: "open",
+            source: {
+              provider: "iNaturalist",
+              url: "https://www.inaturalist.org/observations/405566290",
+            },
+          },
+        },
+      ],
+      metadata: {
+        datasetScope: "locally-synchronized",
+        truncated: true,
+      },
+    });
+    expect(getObservationsWithinBoundingBox).toHaveBeenCalledWith(
+      "1696537",
+      {
+        west: 20,
+        south: 51,
+        east: 22,
+        north: 53,
+      },
+      1_000,
+    );
+  });
+
+  it.each([
+    ["missing bbox", "1696537", undefined, undefined, undefined, "100"],
+    ["malformed bbox", "1696537", undefined, undefined, "20,51,22", undefined],
+    [
+      "out-of-range bbox",
+      "1696537",
+      undefined,
+      undefined,
+      "20,51,181,53",
+      undefined,
+    ],
+    [
+      "non-increasing bbox",
+      "1696537",
+      undefined,
+      undefined,
+      "22,53,20,51",
+      undefined,
+    ],
+    ["zero limit", "1696537", undefined, undefined, "20,51,22,53", "0"],
+    ["oversized limit", "1696537", undefined, undefined, "20,51,22,53", "1001"],
+    ["mixed pagination", "1696537", "1", undefined, "20,51,22,53", undefined],
+  ])(
+    "rejects a spatial observation request with %s",
+    async (_case, id, page, perPage, boundingBox, limit) => {
+      const getObservationsWithinBoundingBox = vi.fn();
+      const speciesService = {
+        getObservationsWithinBoundingBox,
+      } as Pick<
+        SpeciesService,
+        "getObservationsWithinBoundingBox"
+      > as SpeciesService;
+      const controller = new SpeciesController(speciesService);
+
+      const request = controller.getObservations(
+        id,
+        page,
+        perPage,
+        boundingBox,
+        limit,
+      );
+
+      await expect(request).rejects.toBeInstanceOf(BadRequestException);
+      await expect(request).rejects.toMatchObject({
+        response: {
+          error: "Bad Request",
+          message:
+            'Path parameter "id" must be a positive integer; "bbox" must contain west,south,east,north coordinates with valid ranges and increasing bounds; "limit" must be a positive integer no greater than 1000; spatial and pagination parameters cannot be combined',
+          statusCode: 400,
+        },
+        status: 400,
+      });
+      expect(getObservationsWithinBoundingBox).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     ["zero species ID", "0", undefined, undefined],
     ["non-numeric species ID", "deer", undefined, undefined],

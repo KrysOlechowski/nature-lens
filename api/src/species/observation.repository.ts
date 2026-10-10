@@ -67,6 +67,11 @@ export interface ObservationBoundingBox {
   north: number;
 }
 
+export interface ObservationBoundingBoxResult {
+  observations: SpeciesObservation[];
+  truncated: boolean;
+}
+
 export const MAX_BOUNDING_BOX_OBSERVATIONS = 1_000;
 
 @Injectable()
@@ -141,7 +146,7 @@ export class ObservationRepository {
     speciesId: string,
     boundingBox: ObservationBoundingBox,
     limit: number,
-  ): Promise<SpeciesObservation[]> {
+  ): Promise<ObservationBoundingBoxResult> {
     if (
       !Number.isSafeInteger(limit) ||
       limit < 1 ||
@@ -187,11 +192,14 @@ export class ObservationRepository {
         boundingBox.south,
         boundingBox.east,
         boundingBox.north,
-        limit,
+        limit + 1,
       ],
     );
 
-    return result.rows.flatMap(toSpeciesObservation);
+    return {
+      observations: result.rows.slice(0, limit).flatMap(toSpeciesObservation),
+      truncated: result.rows.length > limit,
+    };
   }
 
   async replacePage(

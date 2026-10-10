@@ -227,6 +227,8 @@ describe("database persistence", () => {
     );
 
     expect(secondId).toBe(firstId);
+    await expect(repository.exists(firstId)).resolves.toBe(true);
+    await expect(repository.exists("9223372036854775807")).resolves.toBe(false);
 
     const result = await client.query<{
       display_name: string;
@@ -455,14 +457,20 @@ describe("database persistence", () => {
 
     await expect(
       observationRepository.findWithinBoundingBox(speciesId, boundingBox, 1),
-    ).resolves.toEqual([newestObservation]);
+    ).resolves.toEqual({
+      observations: [newestObservation],
+      truncated: true,
+    });
     await expect(
       observationRepository.findWithinBoundingBox(
         speciesId,
         boundingBox,
         1_000,
       ),
-    ).resolves.toEqual([newestObservation, boundaryObservation]);
+    ).resolves.toEqual({
+      observations: [newestObservation, boundaryObservation],
+      truncated: false,
+    });
     await expect(
       observationRepository.findWithinBoundingBox(
         speciesId,
