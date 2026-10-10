@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend with URL-backed species search and server-rendered species detail pages, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend with URL-backed species search, server-rendered species detail pages, and a MapLibre base map of Poland, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 5 · First working frontend product
 >
-> **Last completed step:** 30 · Add species detail route
+> **Last completed step:** 31 · Add MapLibre base map
 >
-> **Current step:** 31 · Add MapLibre base map
+> **Current step:** 32 · Render observation GeoJSON on the map
 >
-> **Next step:** 32 · Render observation GeoJSON on the map
+> **Next step:** 33 · Fetch observations by current map bbox
 
 ## What currently works
 
@@ -24,7 +24,7 @@
 - A nonempty query is sent server-side to `GET /api/species/search?q=...` with caching disabled. The frontend validates the complete public Nature Lens species-search DTO with Zod and does not depend on provider-specific contracts.
 - Species search renders semantic result lists with common names when available, scientific names, and taxonomic ranks, together with non-fatal empty and unavailable states.
 - Search results link to stable `/species/[id]` URLs. The dynamic Server Component validates the application-owned species ID, fetches and validates the public detail DTO from the Nature Lens API, and distinguishes not-found resources from temporary API failures.
-- Species detail pages display persisted application-owned names and taxonomy, with dedicated navigation back to species search.
+- Species detail pages display persisted application-owned names and taxonomy, with dedicated navigation back to species search and a responsive interactive MapLibre base map fitted to Poland.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
 - The API validates its server-only database configuration, creates one bounded PostgreSQL connection pool per process, verifies the connection before startup, and closes the pool during application shutdown.
@@ -62,7 +62,7 @@
 - When refresh of a stale page fails with a controlled provider error, the endpoint returns the stale persisted page; a missing page still returns the provider error.
 - iNaturalist transport and response-contract failures are translated at the adapter boundary into a provider-neutral error taxonomy. The API returns stable `502`, `503`, or `504` error responses without exposing transport, validation, or provider payload details.
 - Backend development with automatic recompilation/restart, production build, production server, and TypeScript checks can be run from the repository root.
-- `web` validates its public API base URL when Next.js loads; `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
+- `web` validates its public API base URL and optional public map style URL when Next.js loads; the map style defaults to OpenFreeMap Liberty. `api` loads its local `.env` file and validates its port, PostgreSQL URL, and pool size before NestJS starts.
 - Root commands lint, typecheck, build, and format both applications consistently.
 - ESLint applies Next.js Core Web Vitals rules to `web` and recommended TypeScript and Node.js rules to `api`.
 - Prettier can check or update formatting across the repository with shared defaults and LF line endings.
@@ -74,6 +74,9 @@
 - Applications live directly in `web/` and `api/`, without an `apps/` directory.
 - Plain pnpm workspaces are sufficient; no Nx or Turborepo is introduced.
 - `web/app/layout.tsx` owns the HTML document and metadata; `web/app/page.tsx` renders the home page. Both remain Server Components, and the search uses native form behavior without a custom client component.
+- The species detail route remains a Server Component. MapLibre is isolated in one Client Component whose effect owns exactly one map instance and removes it during cleanup, including cleanup after partial setup failure.
+- MapLibre GL JS uses its current ESM worker entry with `setWorkerUrl(new URL(..., import.meta.url))`, allowing Next.js 16 to emit a same-origin hashed worker asset under both Turbopack and webpack.
+- `NEXT_PUBLIC_MAP_STYLE_URL` is optional public configuration and defaults to the token-free OpenFreeMap Liberty style. The base map uses provider attribution and fits Poland's bounding box without yet loading observation data.
 - Tailwind uses its PostCSS plugin. System fonts keep the page independent of external font downloads.
 - shadcn/ui uses the current `base-nova` preset backed by Base UI. Components live directly in `web/components/ui`; only Button, Input, and Card are installed for the next product step.
 - The shadcn/ui initializer's optional Geist font change is intentionally not retained; the established system-font decision remains in effect.
@@ -154,7 +157,7 @@
 
 ## Known limitations / blockers
 
-- The frontend supports species search and species detail pages but has no observation retrieval UI or observation map yet.
+- The frontend supports species search, species detail pages, and a base map of Poland, but it does not retrieve or render observation GeoJSON yet.
 - The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -374,7 +377,13 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web exec next build --webpack`: passed; `/species/[id]` is server-rendered on demand.
 - `pnpm lint`, `pnpm format:check`, and `git diff --check`: passed.
 - Step 30 Definition of Done is satisfied: selecting a search result opens its stable species detail page, backed by a server-side API fetch with distinct not-found and unavailable states.
+- `pnpm --filter web typecheck`: passed with MapLibre GL JS 6.13.0 and the species map Client Component.
+- `pnpm exec eslint web`: passed.
+- `pnpm --filter web exec next build --webpack`: passed; Next.js emitted the MapLibre worker as a hashed same-origin `.mjs` asset and kept `/species/[id]` server-rendered on demand.
+- `pnpm --filter web build`: the standard Turbopack build was attempted twice but the execution environment denied the local port required by CSS processing. The failure occurred while processing MapLibre CSS rather than from a source or worker resolution error.
+- Browser visual verification could not run because Computer Use permissions were unavailable in the execution environment.
+- Step 31 implementation is complete: the successful production build contains a responsive interactive map fitted to Poland, with navigation and metric scale controls and a lifecycle-safe MapLibre instance. Visual runtime confirmation remains an environment-limited check.
 
 ## Next implementation
 
-Discuss and approve **31 · Add MapLibre base map** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **32 · Render observation GeoJSON on the map** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

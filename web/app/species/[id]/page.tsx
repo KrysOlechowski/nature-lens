@@ -8,6 +8,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { SpeciesMap } from "@/components/species-map";
+import { environment } from "../../../env";
 import { getSpecies } from "../../species-detail";
 
 interface SpeciesPageProps {
@@ -97,6 +99,19 @@ export default async function SpeciesPage({ params }: SpeciesPageProps) {
                 </dl>
               </CardContent>
             </Card>
+
+            <section aria-labelledby="species-map-heading" className="mt-10">
+              <h2
+                className="text-2xl font-semibold tracking-tight"
+                id="species-map-heading"
+              >
+                Map of Poland
+              </h2>
+              <p className="mt-2 mb-5 text-sm leading-relaxed text-stone-600">
+                Explore the geographic context for observations of this species.
+              </p>
+              <SpeciesMap mapStyleUrl={environment.NEXT_PUBLIC_MAP_STYLE_URL} />
+            </section>
           </>
         )}
       </div>
