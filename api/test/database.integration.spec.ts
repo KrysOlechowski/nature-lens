@@ -229,6 +229,17 @@ describe("database persistence", () => {
     expect(secondId).toBe(firstId);
     await expect(repository.exists(firstId)).resolves.toBe(true);
     await expect(repository.exists("9223372036854775807")).resolves.toBe(false);
+    await expect(repository.findById(firstId)).resolves.toEqual({
+      id: firstId,
+      scientificName: "Alces alces",
+      displayName: "Eurasian Elk",
+      taxonomy: {
+        rank: "species",
+      },
+    });
+    await expect(
+      repository.findById("9223372036854775807"),
+    ).resolves.toBeNull();
 
     const result = await client.query<{
       display_name: string;

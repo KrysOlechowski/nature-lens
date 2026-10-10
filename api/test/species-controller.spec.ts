@@ -93,6 +93,58 @@ describe("SpeciesController", () => {
     expect(searchSpecies).not.toHaveBeenCalled();
   });
 
+  it("returns an explicit species detail DTO", async () => {
+    const getSpecies = vi.fn().mockResolvedValue({
+      id: "42",
+      scientificName: "Bos bonasus",
+      displayName: "Wisent",
+      taxonomy: {
+        rank: "species",
+      },
+    });
+    const speciesService = {
+      getSpecies,
+    } as Pick<SpeciesService, "getSpecies"> as SpeciesService;
+    const controller = new SpeciesController(speciesService);
+
+    await expect(controller.getSpecies("42")).resolves.toEqual({
+      id: "42",
+      scientificName: "Bos bonasus",
+      displayName: "Wisent",
+      taxonomy: {
+        rank: "species",
+      },
+    });
+    expect(getSpecies).toHaveBeenCalledWith("42");
+  });
+
+  it.each([
+    ["zero", "0"],
+    ["negative", "-1"],
+    ["non-numeric", "bison"],
+    ["repeated", ["42", "43"]],
+    ["outside PostgreSQL bigint range", "9223372036854775808"],
+  ])("rejects a %s species identifier", async (_case, id) => {
+    const getSpecies = vi.fn();
+    const speciesService = {
+      getSpecies,
+    } as Pick<SpeciesService, "getSpecies"> as SpeciesService;
+    const controller = new SpeciesController(speciesService);
+
+    const request = controller.getSpecies(id);
+
+    await expect(request).rejects.toBeInstanceOf(BadRequestException);
+    await expect(request).rejects.toMatchObject({
+      response: {
+        error: "Bad Request",
+        message: 'Path parameter "id" must be a positive integer',
+        statusCode: 400,
+      },
+      status: 400,
+    });
+    expect(getSpecies).not.toHaveBeenCalled();
+  });
+
   it("returns a normalized page of species observations with sync metadata", async () => {
     const getObservations = vi.fn().mockResolvedValue({
       totalResults: 1,

@@ -10,6 +10,7 @@ import {
   MAX_BOUNDING_BOX_OBSERVATIONS,
   type ObservationBoundingBox,
 } from "./observation.repository.js";
+import { SpeciesDetailDto } from "./species-detail.dto.js";
 import { SpeciesObservationGeoJsonDto } from "./species-observation-geojson.dto.js";
 import { SpeciesObservationPageDto } from "./species-observation.dto.js";
 import { SpeciesSearchResultDto } from "./species-search-result.dto.js";
@@ -17,6 +18,8 @@ import { SpeciesService } from "./species.service.js";
 
 const speciesSearchQuerySchema = z.string().trim().min(1);
 const INVALID_QUERY_MESSAGE = 'Query parameter "q" must be a non-empty string';
+const INVALID_SPECIES_ID_MESSAGE =
+  'Path parameter "id" must be a positive integer';
 const positiveIntegerStringSchema = z
   .string()
   .regex(/^[1-9]\d*$/)
@@ -98,6 +101,19 @@ export class SpeciesController {
     const results = await this.speciesService.searchSpecies(parsedQuery.data);
 
     return results.map((result) => new SpeciesSearchResultDto(result));
+  }
+
+  @Get(":id")
+  async getSpecies(@Param("id") id: unknown): Promise<SpeciesDetailDto> {
+    const parsedId = positiveBigIntStringSchema.safeParse(id);
+
+    if (!parsedId.success) {
+      throw new BadRequestException(INVALID_SPECIES_ID_MESSAGE);
+    }
+
+    const species = await this.speciesService.getSpecies(parsedId.data);
+
+    return new SpeciesDetailDto(species);
   }
 
   @Get(":id/observations")

@@ -10,6 +10,7 @@ import {
   ObservationRepository,
   type ObservationBoundingBox,
 } from "./observation.repository.js";
+import type { SpeciesDetail } from "./species-detail.model.js";
 import type {
   SpeciesObservationGeoJsonFeature,
   SpeciesObservationGeoJsonFeatureCollection,
@@ -43,6 +44,16 @@ export class SpeciesService {
         id: await this.speciesRepository.upsert(species),
       })),
     );
+  }
+
+  async getSpecies(speciesId: string): Promise<SpeciesDetail> {
+    const species = await this.speciesRepository.findById(speciesId);
+
+    if (!species) {
+      throw new NotFoundException("Species was not found");
+    }
+
+    return species;
   }
 
   async getObservations(

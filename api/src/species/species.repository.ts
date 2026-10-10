@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service.js";
+import type { SpeciesDetail } from "./species-detail.model.js";
 import type { NormalizedSpecies } from "./species-search-result.model.js";
 
 interface SpeciesIdRow {
@@ -16,6 +17,13 @@ interface ProviderExternalIdRow {
 
 interface SpeciesExistsRow {
   exists: boolean;
+}
+
+interface SpeciesDetailRow {
+  id: string;
+  scientific_name: string;
+  display_name: string | null;
+  taxon_rank: string | null;
 }
 
 export class SpeciesProviderMappingConflictError extends Error {
@@ -102,6 +110,35 @@ export class SpeciesRepository {
     );
 
     return result.rows[0]?.external_id ?? null;
+  }
+
+  async findById(speciesId: string): Promise<SpeciesDetail | null> {
+    const result = await this.database.query<SpeciesDetailRow>(
+      `
+        SELECT
+          id::text AS id,
+          scientific_name,
+          display_name,
+          taxon_rank
+        FROM species
+        WHERE id = $1
+      `,
+      [speciesId],
+    );
+    const row = result.rows[0];
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      id: row.id,
+      scientificName: row.scientific_name,
+      displayName: row.display_name ?? row.scientific_name,
+      taxonomy: {
+        ...(row.taxon_rank === null ? {} : { rank: row.taxon_rank }),
+      },
+    };
   }
 
   async exists(speciesId: string): Promise<boolean> {

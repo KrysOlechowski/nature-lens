@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** frontend with a URL-backed species search experience and shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
+> **Status:** frontend with URL-backed species search and server-rendered species detail pages, shadcn/ui foundation, API, PostgreSQL, PostGIS, persisted normalized species and observations, on-demand observation synchronization, bounded GeoJSON spatial responses, controlled external HTTP, and safely normalized iNaturalist-backed biodiversity data
 >
 > **Current phase:** Phase 5 · First working frontend product
 >
-> **Last completed step:** 29 · Build species search UI
+> **Last completed step:** 30 · Add species detail route
 >
-> **Current step:** 30 · Add species detail route
+> **Current step:** 31 · Add MapLibre base map
 >
-> **Next step:** 31 · Add MapLibre base map
+> **Next step:** 32 · Render observation GeoJSON on the map
 
 ## What currently works
 
@@ -23,6 +23,8 @@
 - The native `GET` search form stores its trimmed `q` value in the URL and submits with standard browser keyboard behavior. A missing, repeated, empty, or whitespace-only query renders the initial state without making an API request.
 - A nonempty query is sent server-side to `GET /api/species/search?q=...` with caching disabled. The frontend validates the complete public Nature Lens species-search DTO with Zod and does not depend on provider-specific contracts.
 - Species search renders semantic result lists with common names when available, scientific names, and taxonomic ranks, together with non-fatal empty and unavailable states.
+- Search results link to stable `/species/[id]` URLs. The dynamic Server Component validates the application-owned species ID, fetches and validates the public detail DTO from the Nature Lens API, and distinguishes not-found resources from temporary API failures.
+- Species detail pages display persisted application-owned names and taxonomy, with dedicated navigation back to species search.
 - Frontend development, production build, production server, and TypeScript checks can be run from the repository root.
 - `api` runs NestJS 12 with a global `/api` route prefix and a PostgreSQL connection to the development Supabase project.
 - The API validates its server-only database configuration, creates one bounded PostgreSQL connection pool per process, verifies the connection before startup, and closes the pool during application shutdown.
@@ -51,6 +53,7 @@
 - `SpeciesService` maps iNaturalist integration results into provider-independent Nature Lens search models with normalized names, taxonomy, and source provenance.
 - Species search models preserve whether a common name was supplied while also providing a display name that falls back to the scientific name.
 - `GET /api/species/search?q=...` validates and trims the query before invoking `SpeciesService`, then returns normalized Nature Lens response DTOs without exposing provider payloads.
+- `GET /api/species/:id` validates the application-owned identifier and returns an explicit public species DTO through `SpeciesService` and `SpeciesRepository`; a missing species returns `404 Not Found`.
 - Species search atomically upserts each normalized species and its provider mapping, then includes the internal string ID in the response. Repeated searches update mutable descriptive fields without creating duplicates.
 - `GET /api/species/:id/observations?page=...&perPage=...` accepts the application-owned species ID and uses an exact-page read-through cache in PostgreSQL. Fresh pages avoid iNaturalist; missing or stale pages are normalized and atomically replaced after a provider request.
 - `ObservationRepository` can query one species from local PostgreSQL by a WGS84 bounding box, excludes records without public coordinates, includes points on the boundary, orders results deterministically by recency, and enforces a maximum of 1,000 records.
@@ -82,7 +85,8 @@
 - `NEXT_PUBLIC_API_BASE_URL` is intentionally public and build-time configuration for browser code. It must never contain a secret.
 - The species query URL parameter is the frontend search state. The input is deliberately uncontrolled because native `GET` submission, browser history, refresh, and shareable URLs satisfy the current interaction without additional client-side state.
 - The frontend validates the public Nature Lens species-search response at its network boundary. Network, HTTP, JSON, and public-contract failures become one non-fatal unavailable state without exposing provider-specific data.
-- Search results are deliberately not links yet; the species detail route and navigation belong to step 30.
+- Species detail reads use the application-owned persisted species resource rather than carrying provider data or names in the route URL. The public detail DTO does not expose database row shapes or provider mappings.
+- Persisted `display_name` falls back to the scientific name when absent. Taxonomic rank remains optional because the existing schema permits missing taxonomy; the detail API does not invent unavailable data.
 - `PORT` remains server-only runtime configuration. The API loads local values with `dotenv`, coerces the string to a number, and rejects values outside the valid TCP port range.
 - ESLint uses one root flat config scoped to each application; formatting rules are delegated to Prettier rather than duplicated in ESLint.
 - Shared developer tooling stays at the workspace root instead of introducing a publishable config package or custom configuration framework.
@@ -150,7 +154,7 @@
 
 ## Known limitations / blockers
 
-- The frontend supports species search but has no species detail route, observation retrieval UI, or observation map yet.
+- The frontend supports species search and species detail pages but has no observation retrieval UI or observation map yet.
 - The persistence suite covers schema-level observation persistence, idempotent species and batch-observation upserts, and transactional rollback on provider-mapping and invalid-observation conflicts; HTTP and end-to-end tests are not configured yet.
 - Integration tests require a running Docker-compatible container runtime and download the PostGIS image on the first run.
 - CI and deployment are not configured yet.
@@ -362,7 +366,15 @@ Run the development servers in separate terminals. The frontend uses http://loca
 - `pnpm lint`: passed for `web` and `api`.
 - `pnpm --filter web exec next build --webpack`: passed; `/` is server-rendered on demand because its search state comes from the URL.
 - Step 29 Definition of Done is satisfied: the species search UI uses `GET /api/species/search` for nonempty queries and renders the validated public response without implementing the detail route.
+- `pnpm --filter api typecheck`: passed for API source, migrations, unit tests, and integration tests after adding the species detail resource.
+- `pnpm --filter api test`: passed all 95 API unit tests, including species-detail controller validation and service not-found behavior.
+- `pnpm --filter api test:integration`: passed all 9 persistence tests against ephemeral PostgreSQL/PostGIS, including application-owned species detail reads.
+- `pnpm --filter api build`: passed.
+- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web typecheck`: passed.
+- `NEXT_PUBLIC_API_BASE_URL=http://localhost:3001 pnpm --filter web exec next build --webpack`: passed; `/species/[id]` is server-rendered on demand.
+- `pnpm lint`, `pnpm format:check`, and `git diff --check`: passed.
+- Step 30 Definition of Done is satisfied: selecting a search result opens its stable species detail page, backed by a server-side API fetch with distinct not-found and unavailable states.
 
 ## Next implementation
 
-Discuss and approve **30 · Add species detail route** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.
+Discuss and approve **31 · Add MapLibre base map** before implementing it. See the corresponding section in `IMPLEMENTATION_PLAN.md`.

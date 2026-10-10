@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -107,40 +108,47 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               <ul className="mt-4 grid gap-3">
                 {searchResponse.results.map((species) => (
                   <li key={species.id}>
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>{species.displayName}</CardTitle>
-                        <CardDescription>
-                          {species.commonName
-                            ? "Common and scientific names"
-                            : "Scientific name"}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                          {species.commonName ? (
+                    <Link
+                      className="block rounded-xl outline-none focus-visible:ring-3 focus-visible:ring-emerald-700/40"
+                      href={`/species/${species.id}`}
+                    >
+                      <Card className="transition-colors hover:bg-emerald-50 hover:ring-emerald-700/30">
+                        <CardHeader>
+                          <CardTitle>{species.displayName}</CardTitle>
+                          <CardDescription>
+                            {species.commonName
+                              ? "Common and scientific names"
+                              : "Scientific name"}
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                            {species.commonName ? (
+                              <div>
+                                <dt className="text-stone-500">Common name</dt>
+                                <dd className="mt-1 font-medium text-stone-800">
+                                  {species.commonName}
+                                </dd>
+                              </div>
+                            ) : null}
                             <div>
-                              <dt className="text-stone-500">Common name</dt>
-                              <dd className="mt-1 font-medium text-stone-800">
-                                {species.commonName}
+                              <dt className="text-stone-500">
+                                Scientific name
+                              </dt>
+                              <dd className="mt-1 font-medium text-stone-800 italic">
+                                {species.scientificName}
                               </dd>
                             </div>
-                          ) : null}
-                          <div>
-                            <dt className="text-stone-500">Scientific name</dt>
-                            <dd className="mt-1 font-medium text-stone-800 italic">
-                              {species.scientificName}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt className="text-stone-500">Taxonomic rank</dt>
-                            <dd className="mt-1 font-medium text-stone-800 capitalize">
-                              {species.taxonomy.rank}
-                            </dd>
-                          </div>
-                        </dl>
-                      </CardContent>
-                    </Card>
+                            <div>
+                              <dt className="text-stone-500">Taxonomic rank</dt>
+                              <dd className="mt-1 font-medium text-stone-800 capitalize">
+                                {species.taxonomy.rank}
+                              </dd>
+                            </div>
+                          </dl>
+                        </CardContent>
+                      </Card>
+                    </Link>
                   </li>
                 ))}
               </ul>

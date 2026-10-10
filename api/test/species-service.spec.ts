@@ -96,6 +96,39 @@ describe("SpeciesService", () => {
     });
   });
 
+  it("returns a persisted species by its application identifier", async () => {
+    const species = {
+      id: "42",
+      scientificName: "Bos bonasus",
+      displayName: "Wisent",
+      taxonomy: {
+        rank: "species",
+      },
+    };
+    const findById = vi.fn().mockResolvedValue(species);
+    const service = new SpeciesService(
+      {} as INaturalistAdapter,
+      { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
+      {} as ObservationRepository,
+    );
+
+    await expect(service.getSpecies("42")).resolves.toBe(species);
+    expect(findById).toHaveBeenCalledWith("42");
+  });
+
+  it("rejects a missing persisted species with not found", async () => {
+    const findById = vi.fn().mockResolvedValue(null);
+    const service = new SpeciesService(
+      {} as INaturalistAdapter,
+      { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
+      {} as ObservationRepository,
+    );
+
+    await expect(service.getSpecies("42")).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it("synchronizes, persists, and reads a missing observation page", async () => {
     const getObservations = vi.fn().mockResolvedValue({
       totalResults: 1,
