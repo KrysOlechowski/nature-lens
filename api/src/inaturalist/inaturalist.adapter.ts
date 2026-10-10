@@ -1,4 +1,10 @@
 import { Injectable } from "@nestjs/common";
+import type {
+  ObservationPage,
+  ObservationPageRequest,
+  ObservationProvider,
+  SpeciesSearchProvider,
+} from "../biodiversity/biodiversity-provider.contract.js";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
 import {
   parseINaturalistObservationsResponse,
@@ -21,11 +27,6 @@ export interface INaturalistSpeciesSearchResult {
   rank: string;
 }
 
-export interface INaturalistObservationPageRequest {
-  page: number;
-  perPage: number;
-}
-
 export interface INaturalistObservationResult {
   externalId: number;
   observedOn: string | null;
@@ -42,15 +43,14 @@ export interface INaturalistObservationResult {
   sourceUrl: string;
 }
 
-export interface INaturalistObservationPage {
-  totalResults: number;
-  page: number;
-  perPage: number;
-  results: INaturalistObservationResult[];
-}
-
 @Injectable()
-export class INaturalistAdapter {
+export class INaturalistAdapter
+  implements
+    SpeciesSearchProvider<INaturalistSpeciesSearchResult>,
+    ObservationProvider<number, INaturalistObservationResult>
+{
+  readonly providerName = INATURALIST_PROVIDER;
+
   constructor(private readonly externalHttpClient: ExternalHttpClient) {}
 
   async searchSpecies(
@@ -91,8 +91,8 @@ export class INaturalistAdapter {
 
   async getObservations(
     taxonId: number,
-    pagination: INaturalistObservationPageRequest,
-  ): Promise<INaturalistObservationPage> {
+    pagination: ObservationPageRequest,
+  ): Promise<ObservationPage<INaturalistObservationResult>> {
     assertPositiveInteger(taxonId, "taxon ID");
     assertPositiveInteger(pagination.page, "observation page");
     assertPositiveInteger(pagination.perPage, "observations per page");

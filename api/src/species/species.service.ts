@@ -1,8 +1,11 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { ObservationPageRequest } from "../biodiversity/biodiversity-provider.contract.js";
 import {
-  INaturalistAdapter,
-  type INaturalistObservationPageRequest,
-} from "../inaturalist/inaturalist.adapter.js";
+  INATURALIST_OBSERVATION_PROVIDER,
+  INATURALIST_SPECIES_SEARCH_PROVIDER,
+  type INaturalistObservationProvider,
+  type INaturalistSpeciesSearchProvider,
+} from "../inaturalist/inaturalist.tokens.js";
 import { environment } from "../config/environment.js";
 import { ProviderError } from "../provider-errors/provider.error.js";
 import { mapINaturalistObservation } from "./inaturalist-observation.mapper.js";
@@ -24,18 +27,20 @@ import { mapINaturalistSpecies } from "./inaturalist-species.mapper.js";
 import type { SpeciesSearchResult } from "./species-search-result.model.js";
 import { SpeciesRepository } from "./species.repository.js";
 
-const INATURALIST_PROVIDER = "iNaturalist";
-
 @Injectable()
 export class SpeciesService {
   constructor(
-    private readonly iNaturalistAdapter: INaturalistAdapter,
+    @Inject(INATURALIST_SPECIES_SEARCH_PROVIDER)
+    private readonly speciesSearchProvider: INaturalistSpeciesSearchProvider,
+    @Inject(INATURALIST_OBSERVATION_PROVIDER)
+    private readonly observationProvider: INaturalistObservationProvider,
     private readonly speciesRepository: SpeciesRepository,
     private readonly observationRepository: ObservationRepository,
   ) {}
 
   async searchSpecies(query: string): Promise<SpeciesSearchResult[]> {
-    const providerResults = await this.iNaturalistAdapter.searchSpecies(query);
+    const providerResults =
+      await this.speciesSearchProvider.searchSpecies(query);
     const normalizedSpecies = providerResults.map(mapINaturalistSpecies);
 
     return Promise.all(
@@ -58,11 +63,11 @@ export class SpeciesService {
 
   async getObservations(
     speciesId: string,
-    pagination: INaturalistObservationPageRequest,
+    pagination: ObservationPageRequest,
   ): Promise<SpeciesObservationPage> {
     const externalTaxonId = await this.speciesRepository.findProviderExternalId(
       speciesId,
-      INATURALIST_PROVIDER,
+      this.observationProvider.providerName,
     );
 
     if (!externalTaxonId) {
@@ -77,7 +82,7 @@ export class SpeciesService {
 
     const storedPage = await this.observationRepository.findPage(
       speciesId,
-      INATURALIST_PROVIDER,
+      this.observationProvider.providerName,
       pagination,
     );
 
@@ -88,7 +93,7 @@ export class SpeciesService {
     let providerPage;
 
     try {
-      providerPage = await this.iNaturalistAdapter.getObservations(
+      providerPage = await this.observationProvider.getObservations(
         taxonId,
         pagination,
       );
@@ -104,7 +109,7 @@ export class SpeciesService {
 
     await this.observationRepository.replacePage(
       speciesId,
-      INATURALIST_PROVIDER,
+      this.observationProvider.providerName,
       {
         totalResults: providerPage.totalResults,
         page: providerPage.page,
@@ -115,7 +120,7 @@ export class SpeciesService {
 
     const synchronizedPage = await this.observationRepository.findPage(
       speciesId,
-      INATURALIST_PROVIDER,
+      this.observationProvider.providerName,
       pagination,
     );
 

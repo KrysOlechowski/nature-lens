@@ -1,6 +1,9 @@
 import { NotFoundException } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { INaturalistAdapter } from "../src/inaturalist/inaturalist.adapter.js";
+import type {
+  INaturalistObservationProvider,
+  INaturalistSpeciesSearchProvider,
+} from "../src/inaturalist/inaturalist.tokens.js";
 import { ProviderError } from "../src/provider-errors/provider.error.js";
 import type { ObservationRepository } from "../src/species/observation.repository.js";
 import type { StoredSpeciesObservationPage } from "../src/species/species-observation.model.js";
@@ -52,16 +55,18 @@ describe("SpeciesService", () => {
         rank: "species",
       },
     ]);
-    const iNaturalistAdapter = {
+    const speciesSearchProvider = {
+      providerName: "iNaturalist",
       searchSpecies,
-    } as Pick<INaturalistAdapter, "searchSpecies"> as INaturalistAdapter;
+    } as INaturalistSpeciesSearchProvider;
     const upsert = vi.fn().mockResolvedValue("42");
     const speciesRepository = {
       upsert,
     } as Pick<SpeciesRepository, "upsert"> as SpeciesRepository;
     const observationRepository = {} as ObservationRepository;
     const service = new SpeciesService(
-      iNaturalistAdapter,
+      speciesSearchProvider,
+      {} as INaturalistObservationProvider,
       speciesRepository,
       observationRepository,
     );
@@ -107,7 +112,8 @@ describe("SpeciesService", () => {
     };
     const findById = vi.fn().mockResolvedValue(species);
     const service = new SpeciesService(
-      {} as INaturalistAdapter,
+      {} as INaturalistSpeciesSearchProvider,
+      {} as INaturalistObservationProvider,
       { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
       {} as ObservationRepository,
     );
@@ -119,7 +125,8 @@ describe("SpeciesService", () => {
   it("rejects a missing persisted species with not found", async () => {
     const findById = vi.fn().mockResolvedValue(null);
     const service = new SpeciesService(
-      {} as INaturalistAdapter,
+      {} as INaturalistSpeciesSearchProvider,
+      {} as INaturalistObservationProvider,
       { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
       {} as ObservationRepository,
     );
@@ -159,10 +166,11 @@ describe("SpeciesService", () => {
       .mockResolvedValueOnce(createStoredPage());
     const replacePage = vi.fn().mockResolvedValue(createStoredPage());
     const service = new SpeciesService(
-      { getObservations } as Pick<
-        INaturalistAdapter,
-        "getObservations"
-      > as INaturalistAdapter,
+      {} as INaturalistSpeciesSearchProvider,
+      {
+        providerName: "iNaturalist",
+        getObservations,
+      } as INaturalistObservationProvider,
       { findProviderExternalId } as Pick<
         SpeciesRepository,
         "findProviderExternalId"
@@ -327,10 +335,11 @@ describe("SpeciesService", () => {
     const findPage = vi.fn();
     const replacePage = vi.fn();
     const service = new SpeciesService(
-      { getObservations } as Pick<
-        INaturalistAdapter,
-        "getObservations"
-      > as INaturalistAdapter,
+      {} as INaturalistSpeciesSearchProvider,
+      {
+        providerName: "iNaturalist",
+        getObservations,
+      } as INaturalistObservationProvider,
       { findProviderExternalId } as Pick<
         SpeciesRepository,
         "findProviderExternalId"
@@ -356,7 +365,8 @@ describe("SpeciesService", () => {
       truncated: true,
     });
     const service = new SpeciesService(
-      {} as INaturalistAdapter,
+      {} as INaturalistSpeciesSearchProvider,
+      {} as INaturalistObservationProvider,
       { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
       { findWithinBoundingBox } as Pick<
         ObservationRepository,
@@ -407,7 +417,8 @@ describe("SpeciesService", () => {
     const exists = vi.fn().mockResolvedValue(false);
     const findWithinBoundingBox = vi.fn();
     const service = new SpeciesService(
-      {} as INaturalistAdapter,
+      {} as INaturalistSpeciesSearchProvider,
+      {} as INaturalistObservationProvider,
       { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
       { findWithinBoundingBox } as Pick<
         ObservationRepository,
@@ -438,10 +449,11 @@ function createObservationService({
   const findProviderExternalId = vi.fn().mockResolvedValue("1696537");
 
   return new SpeciesService(
-    { getObservations } as Pick<
-      INaturalistAdapter,
-      "getObservations"
-    > as INaturalistAdapter,
+    {} as INaturalistSpeciesSearchProvider,
+    {
+      providerName: "iNaturalist",
+      getObservations,
+    } as INaturalistObservationProvider,
     { findProviderExternalId } as Pick<
       SpeciesRepository,
       "findProviderExternalId"

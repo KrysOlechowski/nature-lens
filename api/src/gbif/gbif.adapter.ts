@@ -1,4 +1,9 @@
 import { Injectable } from "@nestjs/common";
+import type {
+  ObservationPage,
+  ObservationPageRequest,
+  ObservationProvider,
+} from "../biodiversity/biodiversity-provider.contract.js";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
 import { throwGBIFProviderError } from "./gbif-error.mapper.js";
 import { parseGBIFOccurrencesResponse } from "./gbif-response.schema.js";
@@ -8,11 +13,6 @@ const GBIF_OCCURRENCES_URL = "https://api.gbif.org/v1/occurrence/search";
 const POLAND_COUNTRY_CODE = "PL";
 const OCCURRENCES_MAX_PER_PAGE = 300;
 const OCCURRENCES_MAX_RESULT_WINDOW = 100_000;
-
-export interface GBIFObservationPageRequest {
-  page: number;
-  perPage: number;
-}
 
 export interface GBIFObservationResult {
   externalId: number;
@@ -25,21 +25,19 @@ export interface GBIFObservationResult {
   sourceUrl: string;
 }
 
-export interface GBIFObservationPage {
-  totalResults: number;
-  page: number;
-  perPage: number;
-  results: GBIFObservationResult[];
-}
-
 @Injectable()
-export class GBIFAdapter {
+export class GBIFAdapter implements ObservationProvider<
+  number,
+  GBIFObservationResult
+> {
+  readonly providerName = GBIF_PROVIDER;
+
   constructor(private readonly externalHttpClient: ExternalHttpClient) {}
 
   async getObservations(
     taxonKey: number,
-    pagination: GBIFObservationPageRequest,
-  ): Promise<GBIFObservationPage> {
+    pagination: ObservationPageRequest,
+  ): Promise<ObservationPage<GBIFObservationResult>> {
     assertPositiveInteger(taxonKey, "taxon key");
     assertPositiveInteger(pagination.page, "observation page");
     assertPositiveInteger(pagination.perPage, "observations per page");

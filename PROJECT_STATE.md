@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** the first complete iNaturalist-backed vertical slice works, and a validated GBIF occurrence integration boundary is ready for provider generalization
+> **Status:** the first complete iNaturalist-backed vertical slice works, and iNaturalist and GBIF now expose capability-specific provider contracts
 >
 > **Current phase:** Phase 6 · GBIF, provenance, and first analyses
 >
-> **Last completed step:** 37 · Add GBIF occurrence adapter
+> **Last completed step:** 38 · Generalize biodiversity provider contract
 >
-> **Current step:** 38 · Generalize biodiversity provider contract
+> **Current step:** 39 · Resolve species identity across providers
 >
-> **Next step:** 39 · Resolve species identity across providers
+> **Next step:** 40 · Preserve source provenance across providers
 
 ## What currently works
 
@@ -27,6 +27,8 @@
 - A controlled backend HTTP client provides JSON `GET`, configurable timeouts, provider-aware logging, and categorized transport failures.
 - The iNaturalist adapter searches active species and retrieves explicit observation pages restricted to Poland. Responses are runtime-validated before being mapped into small integration types.
 - The GBIF adapter retrieves paginated occurrence records restricted to Poland, validates only the provider fields required by the application, and maps them into the existing provider-independent observation shape.
+- Biodiversity provider contracts are split by species-search and observation capabilities. iNaturalist implements both capabilities, while GBIF implements observations only.
+- Observation providers accept one Nature Lens page-based pagination contract and translate it into provider-specific parameters such as `page`/`per_page` or `limit`/`offset`.
 - `SpeciesService` returns provider-independent Nature Lens species and observation models, preserving source provenance, temporal precision, public coordinate accuracy, and provider privacy restrictions.
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
 - Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior.
@@ -51,7 +53,7 @@
 - The frontend depends on public Nature Lens DTOs, never raw provider payloads.
 - External JSON enters the application as `unknown`, is runtime-validated at the provider boundary, and is reduced to only the fields required by current product behavior.
 - Provider adapters own endpoint details, query parameters, provider-specific validation, transport translation, and mapping into small integration types.
-- Step 37 deliberately kept the iNaturalist and GBIF contracts separate. Step 38 can now generalize from both concrete adapters rather than from a speculative interface.
+- Provider DI tokens are capability- and provider-specific. `SpeciesService` depends on separate iNaturalist search and observation contracts rather than on the concrete adapter, while multi-provider orchestration remains deferred.
 - GBIF occurrence `key` is stored as the provider-scoped external observation ID. It supports idempotency for the same GBIF record but is not treated as semantic occurrence identity or as a permanent cross-publication identifier.
 - GBIF exposes public occurrence coordinates without an iNaturalist-equivalent privacy contract. Their privacy remains `unknown`; missing coordinates never imply obscurity, and date-times without an explicit offset never receive an invented timezone.
 - Application services and normalized models remain provider-independent while retaining provider name, external ID, and source URL.
@@ -77,7 +79,7 @@
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
 - CI and production deployment are not configured.
 - Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider.
-- The GBIF adapter is not yet connected to `SpeciesService`; provider orchestration begins in step 38.
+- The GBIF observation capability is registered but is not yet used by `SpeciesService`; cross-provider identity resolution and orchestration remain future work.
 - Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
@@ -112,12 +114,12 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 37.
-- `pnpm lint`: passed after step 37.
-- `pnpm typecheck`: passed for `web` and `api` after step 37.
-- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 126 API unit tests after step 37.
+- `pnpm format:check`: passed after step 38.
+- `pnpm lint`: passed after step 38.
+- `pnpm --filter api typecheck`: passed after step 38.
+- `WEB_ORIGIN=http://localhost:3000 pnpm --filter api test`: passed all 126 API unit tests after step 38.
 - `pnpm test:integration`: last full run passed all 9 PostgreSQL/PostGIS persistence tests.
-- The API production build passed after step 37.
+- The API production build passed after step 38.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
-- `git diff --check`: passed after step 37.
-- Step 37 Definition of Done is satisfied: the validated Poland-restricted GBIF adapter maps occurrences into the same provider-independent observation shape used by iNaturalist normalization.
+- `git diff --check`: passed after step 38.
+- Step 38 Definition of Done is satisfied: provider capabilities and DI tokens are explicit, and `SpeciesService` no longer depends on a concrete provider adapter class.
