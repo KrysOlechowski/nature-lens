@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** the first complete iNaturalist-backed vertical slice works from species search through normalized persistence and a progressively loaded MapLibre observation map
+> **Status:** the first complete iNaturalist-backed vertical slice works, and a validated GBIF occurrence integration boundary is ready for provider generalization
 >
 > **Current phase:** Phase 6 · GBIF, provenance, and first analyses
 >
-> **Last completed step:** 36 · Add progressive loading and section-level errors
+> **Last completed step:** 37 · Add GBIF occurrence adapter
 >
-> **Current step:** 37 · Add GBIF occurrence adapter
+> **Current step:** 38 · Generalize biodiversity provider contract
 >
-> **Next step:** 38 · Generalize biodiversity provider contract
+> **Next step:** 39 · Resolve species identity across providers
 
 ## What currently works
 
@@ -26,6 +26,7 @@
 - Browser map requests use credential-free `GET` calls allowed only from the exact configured `WEB_ORIGIN`.
 - A controlled backend HTTP client provides JSON `GET`, configurable timeouts, provider-aware logging, and categorized transport failures.
 - The iNaturalist adapter searches active species and retrieves explicit observation pages restricted to Poland. Responses are runtime-validated before being mapped into small integration types.
+- The GBIF adapter retrieves paginated occurrence records restricted to Poland, validates only the provider fields required by the application, and maps them into the existing provider-independent observation shape.
 - `SpeciesService` returns provider-independent Nature Lens species and observation models, preserving source provenance, temporal precision, public coordinate accuracy, and provider privacy restrictions.
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
 - Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior.
@@ -50,7 +51,9 @@
 - The frontend depends on public Nature Lens DTOs, never raw provider payloads.
 - External JSON enters the application as `unknown`, is runtime-validated at the provider boundary, and is reduced to only the fields required by current product behavior.
 - Provider adapters own endpoint details, query parameters, provider-specific validation, transport translation, and mapping into small integration types.
-- Do not introduce a shared biodiversity-provider interface during step 37. Step 38 generalizes only after both iNaturalist and GBIF provide real evidence for the common contract.
+- Step 37 deliberately kept the iNaturalist and GBIF contracts separate. Step 38 can now generalize from both concrete adapters rather than from a speculative interface.
+- GBIF occurrence `key` is stored as the provider-scoped external observation ID. It supports idempotency for the same GBIF record but is not treated as semantic occurrence identity or as a permanent cross-publication identifier.
+- GBIF exposes public occurrence coordinates without an iNaturalist-equivalent privacy contract. Their privacy remains `unknown`; missing coordinates never imply obscurity, and date-times without an explicit offset never receive an invented timezone.
 - Application services and normalized models remain provider-independent while retaining provider name, external ID, and source URL.
 - Species use internal `bigint` identities represented as strings in public JSON. Provider mappings are written transactionally and cannot be silently reassigned to another species.
 - Using `scientific_name` as the species upsert conflict key is an explicit single-provider simplification, not the final cross-provider identity-resolution strategy; step 39 addresses that problem.
@@ -74,6 +77,7 @@
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
 - CI and production deployment are not configured.
 - Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider.
+- The GBIF adapter is not yet connected to `SpeciesService`; provider orchestration begins in step 38.
 - Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
@@ -108,12 +112,12 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 36.
-- `pnpm lint`: passed after step 36.
-- `pnpm typecheck`: passed for `web` and `api` after step 36.
-- `WEB_ORIGIN=http://localhost:3000 pnpm test`: last full run passed all 95 API unit tests.
+- `pnpm format:check`: passed after step 37.
+- `pnpm lint`: passed after step 37.
+- `pnpm typecheck`: passed for `web` and `api` after step 37.
+- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 126 API unit tests after step 37.
 - `pnpm test:integration`: last full run passed all 9 PostgreSQL/PostGIS persistence tests.
-- The API production build last passed with the current architecture.
+- The API production build passed after step 37.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
-- `git diff --check`: passed after step 36.
-- Step 36 Definition of Done is satisfied: an observation failure remains inside its section and does not replace the species page.
+- `git diff --check`: passed after step 37.
+- Step 37 Definition of Done is satisfied: the validated Poland-restricted GBIF adapter maps occurrences into the same provider-independent observation shape used by iNaturalist normalization.
