@@ -1,5 +1,8 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import type { ObservationPageRequest } from "../biodiversity/biodiversity-provider.contract.js";
+import type {
+  ObservationPageRequest,
+  ObservationProvider,
+} from "../biodiversity/biodiversity-provider.contract.js";
 import {
   INATURALIST_OBSERVATION_PROVIDER,
   INATURALIST_SPECIES_SEARCH_PROVIDER,
@@ -7,7 +10,12 @@ import {
   type INaturalistSpeciesSearchProvider,
 } from "../inaturalist/inaturalist.tokens.js";
 import { environment } from "../config/environment.js";
+import {
+  GBIF_OBSERVATION_PROVIDER,
+  type GBIFObservationProvider,
+} from "../gbif/gbif.tokens.js";
 import { ProviderError } from "../provider-errors/provider.error.js";
+import { mapGBIFObservation } from "./gbif-observation.mapper.js";
 import { mapINaturalistObservation } from "./inaturalist-observation.mapper.js";
 import {
   ObservationRepository,
@@ -21,6 +29,7 @@ import type {
   SpeciesObservationGeoJsonFeatureCollection,
 } from "./species-observation-geojson.model.js";
 import type {
+  GroupedSpeciesObservation,
   SpeciesObservation,
   SpeciesObservationPage,
   StoredSpeciesObservationPage,
@@ -41,6 +50,8 @@ export class SpeciesService {
     private readonly speciesSearchProvider: INaturalistSpeciesSearchProvider,
     @Inject(INATURALIST_OBSERVATION_PROVIDER)
     private readonly observationProvider: INaturalistObservationProvider,
+    @Inject(GBIF_OBSERVATION_PROVIDER)
+    private readonly gbifObservationProvider: GBIFObservationProvider,
     private readonly speciesRepository: SpeciesRepository,
     private readonly observationRepository: ObservationRepository,
     private readonly speciesIdentityResolver: SpeciesIdentityResolver,
@@ -98,24 +109,78 @@ export class SpeciesService {
     speciesId: string,
     pagination: ObservationPageRequest,
   ): Promise<SpeciesObservationPage> {
-    const externalTaxonId = await this.speciesRepository.findProviderExternalId(
-      speciesId,
-      this.observationProvider.providerName,
-    );
+    const [externalTaxonId, gbifExternalTaxonId] = await Promise.all([
+      this.speciesRepository.findProviderExternalId(
+        speciesId,
+        this.observationProvider.providerName,
+      ),
+      this.speciesRepository.findProviderExternalId(
+        speciesId,
+        this.gbifObservationProvider.providerName,
+      ),
+    ]);
 
     if (!externalTaxonId) {
       throw new NotFoundException("Species was not found");
     }
 
-    const taxonId = Number(externalTaxonId);
+    const primaryPagePromise = this.synchronizeObservationPage(
+      speciesId,
+      this.observationProvider,
+      parseExternalTaxonId(externalTaxonId, "iNaturalist"),
+      pagination,
+      mapINaturalistObservation,
+    );
+    const gbifPagePromise = gbifExternalTaxonId
+      ? this.synchronizeSecondaryObservationPage(
+          speciesId,
+          parseExternalTaxonId(gbifExternalTaxonId, "GBIF"),
+          pagination,
+        )
+      : Promise.resolve();
+    const [primaryPage] = await Promise.all([
+      primaryPagePromise,
+      gbifPagePromise,
+    ]);
 
-    if (!Number.isSafeInteger(taxonId) || taxonId < 1) {
-      throw new Error("Persisted iNaturalist taxon identifier is invalid");
+    return primaryPage;
+  }
+
+  private async synchronizeSecondaryObservationPage(
+    speciesId: string,
+    externalTaxonId: number,
+    pagination: ObservationPageRequest,
+  ): Promise<void> {
+    try {
+      await this.synchronizeObservationPage(
+        speciesId,
+        this.gbifObservationProvider,
+        externalTaxonId,
+        pagination,
+        mapGBIFObservation,
+      );
+    } catch (error) {
+      if (error instanceof ProviderError) {
+        this.logger.warn(
+          `${error.provider} observation synchronization failed (${error.kind}); continuing with available observations`,
+        );
+        return;
+      }
+
+      throw error;
     }
+  }
 
+  private async synchronizeObservationPage<TResult>(
+    speciesId: string,
+    provider: ObservationProvider<number, TResult>,
+    externalTaxonId: number,
+    pagination: ObservationPageRequest,
+    mapObservation: (observation: TResult) => SpeciesObservation,
+  ): Promise<SpeciesObservationPage> {
     const storedPage = await this.observationRepository.findPage(
       speciesId,
-      this.observationProvider.providerName,
+      provider.providerName,
       pagination,
     );
 
@@ -126,8 +191,8 @@ export class SpeciesService {
     let providerPage;
 
     try {
-      providerPage = await this.observationProvider.getObservations(
-        taxonId,
+      providerPage = await provider.getObservations(
+        externalTaxonId,
         pagination,
       );
     } catch (error) {
@@ -138,22 +203,20 @@ export class SpeciesService {
       throw error;
     }
 
-    const observations = providerPage.results.map(mapINaturalistObservation);
-
     await this.observationRepository.replacePage(
       speciesId,
-      this.observationProvider.providerName,
+      provider.providerName,
       {
         totalResults: providerPage.totalResults,
         page: providerPage.page,
         perPage: providerPage.perPage,
-        results: observations,
+        results: providerPage.results.map(mapObservation),
       },
     );
 
     const synchronizedPage = await this.observationRepository.findPage(
       speciesId,
-      this.observationProvider.providerName,
+      provider.providerName,
       pagination,
     );
 
@@ -190,6 +253,16 @@ export class SpeciesService {
   }
 }
 
+function parseExternalTaxonId(value: string, provider: string): number {
+  const externalTaxonId = Number(value);
+
+  if (!Number.isSafeInteger(externalTaxonId) || externalTaxonId < 1) {
+    throw new Error(`Persisted ${provider} taxon identifier is invalid`);
+  }
+
+  return externalTaxonId;
+}
+
 function isFresh(lastSuccessfulSyncAt: string): boolean {
   const expiresAt =
     Date.parse(lastSuccessfulSyncAt) +
@@ -217,7 +290,7 @@ function toObservationPage(
 }
 
 function toGeoJsonFeature(
-  observation: SpeciesObservation,
+  observation: GroupedSpeciesObservation,
 ): SpeciesObservationGeoJsonFeature {
   if (!observation.location) {
     throw new Error("Spatial observation query returned a missing location");
@@ -238,13 +311,7 @@ function toGeoJsonFeature(
       accuracyMeters: observation.location.accuracyMeters,
       locationPrecision: observation.location.precision,
       locationPrivacy: observation.locationPrivacy,
-      source: {
-        provider: observation.source.provider,
-        externalId: observation.source.externalId,
-        url: observation.source.url,
-        license: observation.source.license,
-        dataset: observation.source.dataset,
-      },
+      sources: observation.sources,
     },
   };
 }

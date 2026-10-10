@@ -11,31 +11,33 @@ const observationLicenseSchema = z
     message: "An observation license requires a code or URL",
   });
 
+const observationSourceSchema = z.object({
+  provider: z.string(),
+  externalId: z.string(),
+  url: z.url({ protocol: /^https?$/ }),
+  license: observationLicenseSchema.nullable(),
+  dataset: z
+    .object({
+      externalId: z.string().nullable(),
+      title: z.string().nullable(),
+      url: z.url({ protocol: /^https?$/ }).nullable(),
+      publisher: z
+        .object({
+          externalId: z.string().nullable(),
+          name: z.string().nullable(),
+        })
+        .nullable(),
+    })
+    .nullable(),
+});
+
 export const observationGeoJsonPropertiesSchema = z.object({
   observedOn: z.string().nullable(),
   observedAt: z.string().nullable(),
   accuracyMeters: z.number().nonnegative().nullable(),
   locationPrecision: z.enum(["approximate", "limited", "unknown"]),
   locationPrivacy: z.enum(["open", "obscured", "private", "unknown"]),
-  source: z.object({
-    provider: z.string(),
-    externalId: z.string(),
-    url: z.url({ protocol: /^https?$/ }),
-    license: observationLicenseSchema.nullable(),
-    dataset: z
-      .object({
-        externalId: z.string().nullable(),
-        title: z.string().nullable(),
-        url: z.url({ protocol: /^https?$/ }).nullable(),
-        publisher: z
-          .object({
-            externalId: z.string().nullable(),
-            name: z.string().nullable(),
-          })
-          .nullable(),
-      })
-      .nullable(),
-  }),
+  sources: z.array(observationSourceSchema).min(1),
 });
 
 export const observationGeoJsonFeatureSchema = z.object({

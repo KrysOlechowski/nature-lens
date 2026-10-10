@@ -1,8 +1,7 @@
 import type {
-  ObservationDataset,
-  ObservationLicense,
   ObservationLocationPrecision,
   ObservationLocationPrivacy,
+  ObservationSource,
 } from "./species-observation.model.js";
 
 export interface SpeciesObservationGeoJsonFeatureCollection {
@@ -26,12 +25,6 @@ export interface SpeciesObservationGeoJsonFeature {
     accuracyMeters: number | null;
     locationPrecision: ObservationLocationPrecision;
     locationPrivacy: ObservationLocationPrivacy;
-    source: {
-      provider: string;
-      externalId: string;
-      url: string;
-      license: ObservationLicense | null;
-      dataset: ObservationDataset | null;
-    };
+    sources: ObservationSource[];
   };
 }

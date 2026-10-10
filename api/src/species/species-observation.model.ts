@@ -33,18 +33,37 @@ export interface ObservationDataset {
   publisher: ObservationDatasetPublisher | null;
 }
 
+export type ObservationDeduplicationMethod =
+  "provider-record-id" | "gbif-occurrence-id";
+
+export interface ObservationDeduplicationIdentity {
+  key: string;
+  method: ObservationDeduplicationMethod;
+}
+
+export interface ObservationSource {
+  provider: string;
+  externalId: string;
+  url: string;
+  license: ObservationLicense | null;
+  dataset: ObservationDataset | null;
+}
+
 export interface SpeciesObservation {
   observedOn: string | null;
   observedAt: string | null;
   location: ObservationLocation | null;
   locationPrivacy: ObservationLocationPrivacy;
-  source: {
-    provider: string;
-    externalId: string;
-    url: string;
-    license: ObservationLicense | null;
-    dataset: ObservationDataset | null;
-  };
+  deduplication: ObservationDeduplicationIdentity;
+  source: ObservationSource;
+}
+
+export interface GroupedSpeciesObservation {
+  observedOn: string | null;
+  observedAt: string | null;
+  location: ObservationLocation | null;
+  locationPrivacy: ObservationLocationPrivacy;
+  sources: ObservationSource[];
 }
 
 export interface SpeciesObservationPageData {

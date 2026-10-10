@@ -2,9 +2,12 @@ import { Injectable } from "@nestjs/common";
 import type { PoolClient } from "pg";
 import { DatabaseService } from "../database/database.service.js";
 import type {
+  GroupedSpeciesObservation,
+  ObservationDeduplicationMethod,
   ObservationLocationPrecision,
   ObservationLocationPrivacy,
   ObservationLicense,
+  ObservationSource,
   SpeciesObservation,
   SpeciesObservationPageData,
   StoredSpeciesObservationPage,
@@ -13,6 +16,8 @@ import type {
 interface PersistedObservationInput {
   provider: string;
   external_id: string;
+  deduplication_key: string;
+  deduplication_method: ObservationDeduplicationMethod;
   observed_on: string | null;
   observed_at: string | null;
   longitude: number | null;
@@ -48,6 +53,8 @@ interface PersistedObservationRow {
   location_precision: ObservationLocationPrecision | null;
   provider: string | null;
   external_id: string | null;
+  deduplication_key: string | null;
+  deduplication_method: ObservationDeduplicationMethod | null;
   source_url: string | null;
   license_code: string | null;
   license_url: string | null;
@@ -56,6 +63,28 @@ interface PersistedObservationRow {
   dataset_url: string | null;
   publisher_external_id: string | null;
   publisher_name: string | null;
+}
+
+interface PersistedGroupedObservationRow {
+  observation_id: string;
+  deduplication_key: string;
+  observed_on: string | null;
+  observed_at: Date | null;
+  longitude: number;
+  latitude: number;
+  positional_accuracy_meters: number | null;
+  location_privacy: ObservationLocationPrivacy;
+  location_precision: ObservationLocationPrecision;
+  source_provider: string;
+  source_external_id: string;
+  source_url: string;
+  source_license_code: string | null;
+  source_license_url: string | null;
+  source_dataset_external_id: string | null;
+  source_dataset_title: string | null;
+  source_dataset_url: string | null;
+  source_publisher_external_id: string | null;
+  source_publisher_name: string | null;
 }
 
 interface PersistedObservationPageRow extends PersistedObservationRow {
@@ -83,7 +112,7 @@ export interface ObservationBoundingBox {
 }
 
 export interface ObservationBoundingBoxResult {
-  observations: SpeciesObservation[];
+  observations: GroupedSpeciesObservation[];
   truncated: boolean;
 }
 
@@ -128,6 +157,8 @@ export class ObservationRepository {
           observation.location_precision,
           observation.provider,
           observation.external_id,
+          observation.deduplication_key,
+          observation.deduplication_method,
           observation.source_url,
           observation.license_code,
           observation.license_url,
@@ -179,41 +210,76 @@ export class ObservationRepository {
       );
     }
 
-    const result = await this.database.query<PersistedObservationRow>(
+    const result = await this.database.query<PersistedGroupedObservationRow>(
       `
         WITH bounds AS (
           SELECT extensions.ST_MakeEnvelope($2, $3, $4, $5, 4326) AS geometry
+        ),
+        ranked_observations AS (
+          SELECT
+            observation.*,
+            row_number() OVER (
+              PARTITION BY observation.species_id, observation.deduplication_key
+              ORDER BY
+                CASE WHEN observation.provider = 'iNaturalist' THEN 0 ELSE 1 END,
+                observation.id
+            ) AS representative_rank
+          FROM observations AS observation
+          WHERE observation.species_id = $1
+        ),
+        bounded_groups AS (
+          SELECT representative.*
+          FROM ranked_observations AS representative
+          CROSS JOIN bounds
+          WHERE representative.representative_rank = 1
+            AND representative.location IS NOT NULL
+            AND representative.location OPERATOR(extensions.&&) bounds.geometry
+            AND extensions.ST_Intersects(
+              representative.location,
+              bounds.geometry
+            )
+          ORDER BY
+            COALESCE(
+              representative.observed_on,
+              representative.observed_at::date
+            ) DESC NULLS LAST,
+            representative.observed_at DESC NULLS LAST,
+            representative.id DESC
+          LIMIT $6
         )
         SELECT
-          observation.id::text AS observation_id,
-          observation.observed_on::text,
-          observation.observed_at,
-          extensions.ST_X(observation.location) AS longitude,
-          extensions.ST_Y(observation.location) AS latitude,
-          observation.positional_accuracy_meters,
-          observation.location_privacy,
-          observation.location_precision,
-          observation.provider,
-          observation.external_id,
-          observation.source_url,
-          observation.license_code,
-          observation.license_url,
-          observation.dataset_external_id,
-          observation.dataset_title,
-          observation.dataset_url,
-          observation.publisher_external_id,
-          observation.publisher_name
-        FROM observations AS observation
-        CROSS JOIN bounds
-        WHERE observation.species_id = $1
-          AND observation.location IS NOT NULL
-          AND observation.location OPERATOR(extensions.&&) bounds.geometry
-          AND extensions.ST_Intersects(observation.location, bounds.geometry)
+          representative.id::text AS observation_id,
+          representative.deduplication_key,
+          representative.observed_on::text,
+          representative.observed_at,
+          extensions.ST_X(representative.location) AS longitude,
+          extensions.ST_Y(representative.location) AS latitude,
+          representative.positional_accuracy_meters,
+          representative.location_privacy,
+          representative.location_precision,
+          source.provider AS source_provider,
+          source.external_id AS source_external_id,
+          source.source_url,
+          source.license_code AS source_license_code,
+          source.license_url AS source_license_url,
+          source.dataset_external_id AS source_dataset_external_id,
+          source.dataset_title AS source_dataset_title,
+          source.dataset_url AS source_dataset_url,
+          source.publisher_external_id AS source_publisher_external_id,
+          source.publisher_name AS source_publisher_name
+        FROM bounded_groups AS representative
+        INNER JOIN observations AS source
+          ON source.species_id = representative.species_id
+          AND source.deduplication_key = representative.deduplication_key
         ORDER BY
-          COALESCE(observation.observed_on, observation.observed_at::date) DESC NULLS LAST,
-          observation.observed_at DESC NULLS LAST,
-          observation.id DESC
-        LIMIT $6
+          COALESCE(
+            representative.observed_on,
+            representative.observed_at::date
+          ) DESC NULLS LAST,
+          representative.observed_at DESC NULLS LAST,
+          representative.id DESC,
+          CASE WHEN source.provider = 'iNaturalist' THEN 0 ELSE 1 END,
+          source.id
       `,
       [
         speciesId,
@@ -225,9 +291,11 @@ export class ObservationRepository {
       ],
     );
 
+    const observations = toGroupedSpeciesObservations(result.rows);
+
     return {
-      observations: result.rows.slice(0, limit).flatMap(toSpeciesObservation),
-      truncated: result.rows.length > limit,
+      observations: observations.slice(0, limit),
+      truncated: observations.length > limit,
     };
   }
 
@@ -323,6 +391,8 @@ export class ObservationRepository {
           species_id,
           provider,
           external_id,
+          deduplication_key,
+          deduplication_method,
           observed_on,
           observed_at,
           location,
@@ -343,6 +413,8 @@ export class ObservationRepository {
           $1::bigint,
           input.provider,
           input.external_id,
+          input.deduplication_key,
+          input.deduplication_method,
           input.observed_on,
           input.observed_at,
           CASE
@@ -367,6 +439,8 @@ export class ObservationRepository {
         FROM jsonb_to_recordset($2::jsonb) AS input (
           provider text,
           external_id text,
+          deduplication_key text,
+          deduplication_method text,
           observed_on date,
           observed_at timestamp with time zone,
           longitude double precision,
@@ -387,6 +461,8 @@ export class ObservationRepository {
         ON CONFLICT (provider, external_id)
         DO UPDATE SET
           species_id = EXCLUDED.species_id,
+          deduplication_key = EXCLUDED.deduplication_key,
+          deduplication_method = EXCLUDED.deduplication_method,
           observed_on = EXCLUDED.observed_on,
           observed_at = EXCLUDED.observed_at,
           location = EXCLUDED.location,
@@ -470,6 +546,8 @@ function toSpeciesObservation(
     row.observation_id === null ||
     row.provider === null ||
     row.external_id === null ||
+    row.deduplication_key === null ||
+    row.deduplication_method === null ||
     row.source_url === null ||
     row.location_privacy === null
   ) {
@@ -495,6 +573,10 @@ function toSpeciesObservation(
           }
         : null,
       locationPrivacy: row.location_privacy,
+      deduplication: {
+        key: row.deduplication_key,
+        method: row.deduplication_method,
+      },
       source: {
         provider: row.provider,
         externalId: row.external_id,
@@ -531,6 +613,8 @@ function toPersistedObservationInput(
   return {
     provider: observation.source.provider,
     external_id: observation.source.externalId,
+    deduplication_key: observation.deduplication.key,
+    deduplication_method: observation.deduplication.method,
     observed_on: observation.observedOn,
     observed_at: observation.observedAt,
     longitude: observation.location?.longitude ?? null,
@@ -548,6 +632,92 @@ function toPersistedObservationInput(
     publisher_external_id:
       observation.source.dataset?.publisher?.externalId ?? null,
     publisher_name: observation.source.dataset?.publisher?.name ?? null,
+  };
+}
+
+function toGroupedSpeciesObservations(
+  rows: PersistedGroupedObservationRow[],
+): GroupedSpeciesObservation[] {
+  const observations = new Map<string, GroupedSpeciesObservation>();
+
+  for (const row of rows) {
+    const existing = observations.get(row.deduplication_key);
+    const source = toObservationSource({
+      provider: row.source_provider,
+      externalId: row.source_external_id,
+      url: row.source_url,
+      licenseCode: row.source_license_code,
+      licenseUrl: row.source_license_url,
+      datasetExternalId: row.source_dataset_external_id,
+      datasetTitle: row.source_dataset_title,
+      datasetUrl: row.source_dataset_url,
+      publisherExternalId: row.source_publisher_external_id,
+      publisherName: row.source_publisher_name,
+    });
+
+    if (existing) {
+      existing.sources.push(source);
+      continue;
+    }
+
+    observations.set(row.deduplication_key, {
+      observedOn: row.observed_on,
+      observedAt: row.observed_at?.toISOString() ?? null,
+      location: {
+        longitude: row.longitude,
+        latitude: row.latitude,
+        accuracyMeters: row.positional_accuracy_meters,
+        precision: row.location_precision,
+      },
+      locationPrivacy: row.location_privacy,
+      sources: [source],
+    });
+  }
+
+  return [...observations.values()];
+}
+
+interface ObservationSourceFields {
+  provider: string;
+  externalId: string;
+  url: string;
+  licenseCode: string | null;
+  licenseUrl: string | null;
+  datasetExternalId: string | null;
+  datasetTitle: string | null;
+  datasetUrl: string | null;
+  publisherExternalId: string | null;
+  publisherName: string | null;
+}
+
+function toObservationSource(
+  fields: ObservationSourceFields,
+): ObservationSource {
+  return {
+    provider: fields.provider,
+    externalId: fields.externalId,
+    url: fields.url,
+    license: toObservationLicense(fields.licenseCode, fields.licenseUrl),
+    dataset:
+      fields.datasetExternalId !== null ||
+      fields.datasetTitle !== null ||
+      fields.datasetUrl !== null ||
+      fields.publisherExternalId !== null ||
+      fields.publisherName !== null
+        ? {
+            externalId: fields.datasetExternalId,
+            title: fields.datasetTitle,
+            url: fields.datasetUrl,
+            publisher:
+              fields.publisherExternalId !== null ||
+              fields.publisherName !== null
+                ? {
+                    externalId: fields.publisherExternalId,
+                    name: fields.publisherName,
+                  }
+                : null,
+          }
+        : null,
   };
 }
 

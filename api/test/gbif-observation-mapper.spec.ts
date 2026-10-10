@@ -10,6 +10,7 @@ const baseObservation: GBIFObservationResult = {
     longitude: 23.764744,
   },
   coordinateUncertaintyMeters: 26_004,
+  canonicalIdentity: null,
   sourceUrl: "https://www.gbif.org/occurrence/6129944648",
   license: {
     code: null,
@@ -35,6 +36,10 @@ describe("mapGBIFObservation", () => {
         precision: "approximate",
       },
       locationPrivacy: "unknown",
+      deduplication: {
+        key: "gbif:6129944648",
+        method: "provider-record-id",
+      },
       source: {
         provider: "GBIF",
         externalId: "6129944648",
@@ -53,6 +58,22 @@ describe("mapGBIFObservation", () => {
           },
         },
       },
+    });
+  });
+
+  it("uses a canonical iNaturalist identity supplied by the GBIF boundary", () => {
+    expect(
+      mapGBIFObservation({
+        ...baseObservation,
+        canonicalIdentity: {
+          key: "inaturalist:335927335",
+          provider: "inaturalist",
+          externalId: "335927335",
+        },
+      }).deduplication,
+    ).toEqual({
+      key: "inaturalist:335927335",
+      method: "gbif-occurrence-id",
     });
   });
 

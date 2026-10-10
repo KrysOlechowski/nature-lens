@@ -1,5 +1,6 @@
 import { Logger, NotFoundException } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GBIFObservationProvider } from "../src/gbif/gbif.tokens.js";
 import type {
   INaturalistObservationProvider,
   INaturalistSpeciesSearchProvider,
@@ -22,6 +23,10 @@ const normalizedObservation = {
     precision: "limited" as const,
   },
   locationPrivacy: "obscured" as const,
+  deduplication: {
+    key: "inaturalist:405566287",
+    method: "provider-record-id" as const,
+  },
   source: {
     provider: "iNaturalist",
     externalId: "405566287",
@@ -32,6 +37,14 @@ const normalizedObservation = {
     },
     dataset: null,
   },
+};
+
+const groupedObservation = {
+  observedOn: normalizedObservation.observedOn,
+  observedAt: normalizedObservation.observedAt,
+  location: normalizedObservation.location,
+  locationPrivacy: normalizedObservation.locationPrivacy,
+  sources: [normalizedObservation.source],
 };
 
 function createStoredPage(
@@ -45,6 +58,15 @@ function createStoredPage(
     lastSuccessfulSyncAt: synchronizedAt,
     ...overrides,
   };
+}
+
+function createGBIFObservationProvider(
+  getObservations = vi.fn(),
+): GBIFObservationProvider {
+  return {
+    providerName: "GBIF",
+    getObservations,
+  } as GBIFObservationProvider;
 }
 
 afterEach(() => {
@@ -83,6 +105,7 @@ describe("SpeciesService", () => {
     const service = new SpeciesService(
       speciesSearchProvider,
       {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       speciesRepository,
       observationRepository,
       { resolve } as Pick<
@@ -146,6 +169,7 @@ describe("SpeciesService", () => {
         searchSpecies,
       } as INaturalistSpeciesSearchProvider,
       {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       { upsert } as Pick<SpeciesRepository, "upsert"> as SpeciesRepository,
       {} as ObservationRepository,
       { resolve } as Pick<
@@ -175,6 +199,7 @@ describe("SpeciesService", () => {
     const service = new SpeciesService(
       {} as INaturalistSpeciesSearchProvider,
       {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
       {} as ObservationRepository,
       {} as SpeciesIdentityResolver,
@@ -189,6 +214,7 @@ describe("SpeciesService", () => {
     const service = new SpeciesService(
       {} as INaturalistSpeciesSearchProvider,
       {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       { findById } as Pick<SpeciesRepository, "findById"> as SpeciesRepository,
       {} as ObservationRepository,
       {} as SpeciesIdentityResolver,
@@ -223,7 +249,10 @@ describe("SpeciesService", () => {
         },
       ],
     });
-    const findProviderExternalId = vi.fn().mockResolvedValue("1696537");
+    const findProviderExternalId = vi
+      .fn()
+      .mockResolvedValueOnce("1696537")
+      .mockResolvedValueOnce(null);
     const findPage = vi
       .fn()
       .mockResolvedValueOnce(null)
@@ -235,6 +264,7 @@ describe("SpeciesService", () => {
         providerName: "iNaturalist",
         getObservations,
       } as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       { findProviderExternalId } as Pick<
         SpeciesRepository,
         "findProviderExternalId"
@@ -282,6 +312,125 @@ describe("SpeciesService", () => {
       page: 2,
       perPage: 20,
     });
+  });
+
+  it("synchronizes a mapped GBIF page alongside the primary iNaturalist page", async () => {
+    const getINaturalistObservations = vi.fn().mockResolvedValue({
+      totalResults: 1,
+      page: 1,
+      perPage: 20,
+      results: [
+        {
+          externalId: 405566287,
+          observedOn: "2026-10-03",
+          timeObservedAt: "2026-10-03T16:45:26+02:00",
+          coordinates: null,
+          positionalAccuracyMeters: null,
+          publicPositionalAccuracyMeters: null,
+          geoprivacy: "private",
+          taxonGeoprivacy: null,
+          obscured: false,
+          sourceUrl: "https://www.inaturalist.org/observations/405566287",
+          licenseCode: "cc-by-nc",
+        },
+      ],
+    });
+    const getGBIFObservations = vi.fn().mockResolvedValue({
+      totalResults: 1,
+      page: 1,
+      perPage: 20,
+      results: [
+        {
+          externalId: 6_129_944_648,
+          eventDate: "2026-10-03T14:45:26Z",
+          coordinates: { latitude: 53.4, longitude: 23.2 },
+          coordinateUncertaintyMeters: 10,
+          canonicalIdentity: {
+            key: "inaturalist:405566287",
+            provider: "inaturalist",
+            externalId: "405566287",
+          },
+          sourceUrl: "https://www.gbif.org/occurrence/6129944648",
+          license: null,
+          dataset: {
+            externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+            title: "iNaturalist Research-grade Observations",
+            publisherExternalId: null,
+            publisherName: "iNaturalist",
+          },
+        },
+      ],
+    });
+    const storedPages = new Map<string, StoredSpeciesObservationPage>();
+    const findProviderExternalId = vi
+      .fn()
+      .mockImplementation((_speciesId: string, provider: string) =>
+        Promise.resolve(provider === "iNaturalist" ? "1696537" : "2441184"),
+      );
+    const findPage = vi
+      .fn()
+      .mockImplementation((_speciesId: string, provider: string) =>
+        Promise.resolve(storedPages.get(provider) ?? null),
+      );
+    const replacePage = vi
+      .fn()
+      .mockImplementation(
+        (
+          _speciesId: string,
+          provider: string,
+          page: Omit<StoredSpeciesObservationPage, "lastSuccessfulSyncAt">,
+        ) => {
+          const storedPage = { ...page, lastSuccessfulSyncAt: synchronizedAt };
+
+          storedPages.set(provider, storedPage);
+          return Promise.resolve(storedPage);
+        },
+      );
+    const service = new SpeciesService(
+      {} as INaturalistSpeciesSearchProvider,
+      {
+        providerName: "iNaturalist",
+        getObservations: getINaturalistObservations,
+      } as INaturalistObservationProvider,
+      createGBIFObservationProvider(getGBIFObservations),
+      { findProviderExternalId } as Pick<
+        SpeciesRepository,
+        "findProviderExternalId"
+      > as SpeciesRepository,
+      { findPage, replacePage } as Pick<
+        ObservationRepository,
+        "findPage" | "replacePage"
+      > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
+    );
+
+    await expect(
+      service.getObservations("42", { page: 1, perPage: 20 }),
+    ).resolves.toMatchObject({
+      metadata: { servedFrom: "provider-sync", freshness: "fresh" },
+    });
+    expect(getINaturalistObservations).toHaveBeenCalledWith(1696537, {
+      page: 1,
+      perPage: 20,
+    });
+    expect(getGBIFObservations).toHaveBeenCalledWith(2441184, {
+      page: 1,
+      perPage: 20,
+    });
+    expect(replacePage).toHaveBeenCalledWith(
+      "42",
+      "GBIF",
+      expect.objectContaining({
+        results: [
+          expect.objectContaining({
+            deduplication: {
+              key: "inaturalist:405566287",
+              method: "gbif-occurrence-id",
+            },
+          }),
+        ],
+      }),
+    );
   });
 
   it("serves a fresh exact page from PostgreSQL without calling the provider", async () => {
@@ -405,6 +554,7 @@ describe("SpeciesService", () => {
         providerName: "iNaturalist",
         getObservations,
       } as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       { findProviderExternalId } as Pick<
         SpeciesRepository,
         "findProviderExternalId"
@@ -427,12 +577,13 @@ describe("SpeciesService", () => {
   it("returns locally synchronized bounding-box observations as GeoJSON", async () => {
     const exists = vi.fn().mockResolvedValue(true);
     const findWithinBoundingBox = vi.fn().mockResolvedValue({
-      observations: [normalizedObservation],
+      observations: [groupedObservation],
       truncated: true,
     });
     const service = new SpeciesService(
       {} as INaturalistSpeciesSearchProvider,
       {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
       { findWithinBoundingBox } as Pick<
         ObservationRepository,
@@ -464,16 +615,7 @@ describe("SpeciesService", () => {
             accuracyMeters: 25_876,
             locationPrecision: "limited",
             locationPrivacy: "obscured",
-            source: {
-              provider: "iNaturalist",
-              externalId: "405566287",
-              url: "https://www.inaturalist.org/observations/405566287",
-              license: {
-                code: "cc-by-nc",
-                url: null,
-              },
-              dataset: null,
-            },
+            sources: [normalizedObservation.source],
           },
         },
       ],
@@ -492,6 +634,7 @@ describe("SpeciesService", () => {
     const service = new SpeciesService(
       {} as INaturalistSpeciesSearchProvider,
       {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
       { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
       { findWithinBoundingBox } as Pick<
         ObservationRepository,
@@ -520,7 +663,10 @@ function createObservationService({
   findPage: ReturnType<typeof vi.fn>;
   replacePage: ReturnType<typeof vi.fn>;
 }): SpeciesService {
-  const findProviderExternalId = vi.fn().mockResolvedValue("1696537");
+  const findProviderExternalId = vi
+    .fn()
+    .mockResolvedValueOnce("1696537")
+    .mockResolvedValueOnce(null);
 
   return new SpeciesService(
     {} as INaturalistSpeciesSearchProvider,
@@ -528,6 +674,7 @@ function createObservationService({
       providerName: "iNaturalist",
       getObservations,
     } as INaturalistObservationProvider,
+    createGBIFObservationProvider(),
     { findProviderExternalId } as Pick<
       SpeciesRepository,
       "findProviderExternalId"

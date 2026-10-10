@@ -8,6 +8,7 @@ const gbifOccurrenceSchema = z
     decimalLatitude: z.number().min(-90).max(90).nullish(),
     decimalLongitude: z.number().min(-180).max(180).nullish(),
     coordinateUncertaintyInMeters: z.number().nonnegative().nullish(),
+    occurrenceID: z.string().min(1).nullish(),
     license: z.string().min(1).nullish(),
     datasetKey: z.uuid().nullish(),
     datasetTitle: z.string().min(1).nullish(),

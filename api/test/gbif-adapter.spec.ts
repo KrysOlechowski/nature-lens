@@ -64,6 +64,7 @@ describe("GBIFAdapter", () => {
           coordinateUncertaintyInMeters: 26_004,
           license: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
           datasetKey: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          occurrenceID: "https://www.inaturalist.org/observations/335927335",
           datasetTitle: "iNaturalist Research-grade Observations",
           publishingOrgKey: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",
           publisher: "iNaturalist",
@@ -85,6 +86,11 @@ describe("GBIFAdapter", () => {
         {
           externalId: 6_129_944_648,
           eventDate: "2026-01-19T14:21",
+          canonicalIdentity: {
+            key: "inaturalist:335927335",
+            provider: "inaturalist",
+            externalId: "335927335",
+          },
           coordinates: {
             latitude: 52.708039,
             longitude: 23.764744,
@@ -105,6 +111,7 @@ describe("GBIFAdapter", () => {
         {
           externalId: 6_130_241_491,
           eventDate: null,
+          canonicalIdentity: null,
           coordinates: null,
           coordinateUncertaintyMeters: null,
           sourceUrl: "https://www.gbif.org/occurrence/6130241491",
@@ -117,6 +124,52 @@ describe("GBIFAdapter", () => {
       ],
     });
   });
+
+  it.each([
+    [
+      "another dataset",
+      "8a863029-f435-446a-821e-275f4f641165",
+      "https://www.inaturalist.org/observations/335927335",
+    ],
+    [
+      "an HTTP URL",
+      "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+      "http://www.inaturalist.org/observations/335927335",
+    ],
+    [
+      "a non-canonical host",
+      "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+      "https://inaturalist.org/observations/335927335",
+    ],
+    [
+      "a URL with a trailing slash",
+      "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+      "https://www.inaturalist.org/observations/335927335/",
+    ],
+    [
+      "a URL with query parameters",
+      "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+      "https://www.inaturalist.org/observations/335927335?source=gbif",
+    ],
+  ])(
+    "does not infer an iNaturalist identity from %s",
+    async (_description, datasetKey, occurrenceID) => {
+      const { adapter, getJson } = createAdapter();
+      getJson.mockResolvedValue({
+        offset: 0,
+        limit: 1,
+        count: 1,
+        results: [{ key: 123, datasetKey, occurrenceID }],
+      });
+
+      const page = await adapter.getObservations(2_441_184, {
+        page: 1,
+        perPage: 1,
+      });
+
+      expect(page.results[0]?.canonicalIdentity).toBeNull();
+    },
+  );
 
   it("matches a taxon in the same explicit GBIF Backbone used by occurrences", async () => {
     const { adapter, getJson } = createAdapter();

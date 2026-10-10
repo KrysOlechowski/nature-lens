@@ -2,6 +2,7 @@
 
 import { RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import {
   type GeoJSONSource,
   Map as MapLibreMap,
@@ -40,17 +41,23 @@ const observationClusterCountLayerId = "species-observation-cluster-count";
 const unclusteredObservationsLayerId = "species-observation-points";
 const minimumObservationFetchZoom = 7;
 const observationFetchDebounceMs = 300;
+const renderedObservationSourcesSchema = z
+  .array(
+    z.object({
+      provider: z.string(),
+      url: z.url({ protocol: /^https?$/ }),
+    }),
+  )
+  .min(1);
 
 const renderedObservationPropertiesSchema = observationGeoJsonPropertiesSchema
-  .omit({ source: true })
+  .omit({ sources: true })
   .extend({
     observedOn: observationGeoJsonPropertiesSchema.shape.observedOn.optional(),
     observedAt: observationGeoJsonPropertiesSchema.shape.observedAt.optional(),
     accuracyMeters:
       observationGeoJsonPropertiesSchema.shape.accuracyMeters.optional(),
-    sourceProvider:
-      observationGeoJsonPropertiesSchema.shape.source.shape.provider,
-    sourceUrl: observationGeoJsonPropertiesSchema.shape.source.shape.url,
+    sourcesJson: z.string(),
   });
 
 const renderedObservationFeatureSchema = observationGeoJsonFeatureSchema.extend(
@@ -59,19 +66,26 @@ const renderedObservationFeatureSchema = observationGeoJsonFeatureSchema.extend(
   },
 );
 
-type ObservationProperties =
-  SpeciesObservationGeoJson["features"][number]["properties"];
+type RenderedObservationProperties = z.infer<
+  typeof renderedObservationPropertiesSchema
+>;
+type RenderedObservationSource = z.infer<
+  typeof renderedObservationSourcesSchema
+>[number];
 
-type RenderedObservationProperties = Omit<
-  ObservationProperties,
-  "accuracyMeters" | "observedAt" | "observedOn" | "source"
-> & {
-  accuracyMeters?: ObservationProperties["accuracyMeters"];
-  observedAt?: ObservationProperties["observedAt"];
-  observedOn?: ObservationProperties["observedOn"];
-  sourceProvider: string;
-  sourceUrl: string;
-};
+function parseRenderedObservationSources(
+  value: string,
+): RenderedObservationSource[] | null {
+  try {
+    const sources = renderedObservationSourcesSchema.safeParse(
+      JSON.parse(value),
+    );
+
+    return sources.success ? sources.data : null;
+  } catch {
+    return null;
+  }
+}
 
 function toRenderedObservationData(
   data: Pick<SpeciesObservationGeoJson, "type" | "features">,
@@ -86,8 +100,9 @@ function toRenderedObservationData(
         accuracyMeters: properties.accuracyMeters,
         locationPrecision: properties.locationPrecision,
         locationPrivacy: properties.locationPrivacy,
-        sourceProvider: properties.source.provider,
-        sourceUrl: properties.source.url,
+        sourcesJson: JSON.stringify(
+          properties.sources.map(({ provider, url }) => ({ provider, url })),
+        ),
       },
     })),
   };
@@ -113,6 +128,7 @@ function createDefinitionItem(label: string, value: string): HTMLDivElement {
 
 function createObservationPopupContent(
   properties: RenderedObservationProperties,
+  sources: RenderedObservationSource[],
 ): HTMLDivElement {
   const content = document.createElement("div");
   const title = document.createElement("h3");
@@ -120,7 +136,6 @@ function createObservationPopupContent(
   const sourceItem = document.createElement("div");
   const sourceTerm = document.createElement("dt");
   const sourceDescription = document.createElement("dd");
-  const sourceLink = document.createElement("a");
 
   content.className = "w-64 pr-3 text-stone-900";
   title.className = "text-sm font-semibold";
@@ -151,15 +166,20 @@ function createObservationPopupContent(
   }
 
   sourceTerm.className = "text-xs font-medium text-stone-500";
-  sourceTerm.textContent = "Source";
-  sourceDescription.className = "mt-0.5 text-sm";
-  sourceLink.className =
-    "font-medium text-emerald-800 underline underline-offset-2 hover:text-emerald-700";
-  sourceLink.href = properties.sourceUrl;
-  sourceLink.rel = "noopener noreferrer";
-  sourceLink.target = "_blank";
-  sourceLink.textContent = capitalize(properties.sourceProvider);
-  sourceDescription.append(sourceLink);
+  sourceTerm.textContent = sources.length === 1 ? "Source" : "Sources";
+  sourceDescription.className = "mt-0.5 flex flex-wrap gap-x-2 gap-y-1 text-sm";
+
+  for (const source of sources) {
+    const sourceLink = document.createElement("a");
+
+    sourceLink.className =
+      "font-medium text-emerald-800 underline underline-offset-2 hover:text-emerald-700";
+    sourceLink.href = source.url;
+    sourceLink.rel = "noopener noreferrer";
+    sourceLink.target = "_blank";
+    sourceLink.textContent = source.provider;
+    sourceDescription.append(sourceLink);
+  }
   sourceItem.append(sourceTerm, sourceDescription);
   details.append(sourceItem);
   content.append(title, details);
@@ -401,10 +421,18 @@ export function SpeciesMap({
         return;
       }
 
+      const sources = parseRenderedObservationSources(
+        observation.data.properties.sourcesJson,
+      );
+
+      if (!sources) {
+        return;
+      }
+
       observationPopup
         .setLngLat(observation.data.geometry.coordinates)
         .setDOMContent(
-          createObservationPopupContent(observation.data.properties),
+          createObservationPopupContent(observation.data.properties, sources),
         )
         .addTo(map);
     };

@@ -22,6 +22,10 @@ export function mapINaturalistObservation(
         }
       : null,
     locationPrivacy,
+    deduplication: {
+      key: `inaturalist:${observation.externalId}`,
+      method: "provider-record-id",
+    },
     source: {
       provider: "iNaturalist",
       externalId: String(observation.externalId),

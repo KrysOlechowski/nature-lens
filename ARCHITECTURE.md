@@ -467,6 +467,25 @@ We should always be able to answer:
 
 > Where did this record come from?
 
+### Conservative observation deduplication
+
+Provider records remain separate persisted observations. Nature Lens groups them
+only when an exact canonical observation identity is available; similar dates,
+coordinates, or accuracy values are never sufficient.
+
+The currently supported cross-provider link is deliberately narrow: a GBIF
+record may share the `inaturalist:{observationId}` identity only when it belongs
+to the official iNaturalist GBIF dataset
+`50c9509d-22c7-4a22-a47d-8c48425ef4a7` and its `occurrenceID` exactly matches
+the canonical HTTPS iNaturalist observation URL. Every grouped result retains
+all original provider links and provenance.
+
+Spatial queries choose one representative before applying location filters.
+The direct iNaturalist record has priority over its GBIF copy, including when
+the iNaturalist record has no public point. Query limits, truncation metadata,
+and map cluster counts therefore describe deduplicated groups rather than raw
+provider records.
+
 ---
 
 ## 🐘 Persistence

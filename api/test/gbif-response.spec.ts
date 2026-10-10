@@ -43,6 +43,7 @@ describe("parseGBIFOccurrencesResponse", () => {
           decimalLongitude: 23.764744,
           coordinateUncertaintyInMeters: 26_004,
           datasetKey: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          occurrenceID: "https://www.inaturalist.org/observations/335927335",
           datasetTitle: "iNaturalist Research-grade Observations",
           license: "http://creativecommons.org/licenses/by-nc/4.0/legalcode",
           publishingOrgKey: "28eb1a3f-1c15-4a95-931a-4af90ecb574d",

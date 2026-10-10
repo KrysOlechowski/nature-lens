@@ -10,6 +10,7 @@ import { ExternalHttpClient } from "../external-http/external-http-client.servic
 import {
   GBIF_BACKBONE_CHECKLIST_KEY,
   GBIF_PROVIDER,
+  INATURALIST_GBIF_DATASET_KEY,
 } from "./gbif.constants.js";
 import { throwGBIFProviderError } from "./gbif-error.mapper.js";
 import {
@@ -22,6 +23,14 @@ const GBIF_TAXON_MATCH_URL = "https://api.gbif.org/v2/species/match";
 const POLAND_COUNTRY_CODE = "PL";
 const OCCURRENCES_MAX_PER_PAGE = 300;
 const OCCURRENCES_MAX_RESULT_WINDOW = 100_000;
+const canonicalINaturalistOccurrenceIdPattern =
+  /^https:\/\/www\.inaturalist\.org\/observations\/([1-9]\d*)$/;
+
+export interface CanonicalObservationIdentity {
+  key: string;
+  provider: "inaturalist";
+  externalId: string;
+}
 
 export interface GBIFObservationResult {
   externalId: number;
@@ -31,6 +40,7 @@ export interface GBIFObservationResult {
     longitude: number;
   } | null;
   coordinateUncertaintyMeters: number | null;
+  canonicalIdentity: CanonicalObservationIdentity | null;
   sourceUrl: string;
   license:
     | {
@@ -132,6 +142,7 @@ export class GBIFAdapter
               : null,
           coordinateUncertaintyMeters:
             occurrence.coordinateUncertaintyInMeters ?? null,
+          canonicalIdentity: toCanonicalObservationIdentity(occurrence),
           sourceUrl: `https://www.gbif.org/occurrence/${occurrence.key}`,
           license: toGBIFLicense(occurrence.license ?? null),
           dataset: toGBIFDataset(occurrence),
@@ -192,6 +203,31 @@ export class GBIFAdapter
       throwGBIFProviderError(error);
     }
   }
+}
+
+function toCanonicalObservationIdentity(
+  occurrence: ReturnType<
+    typeof parseGBIFOccurrencesResponse
+  >["results"][number],
+): CanonicalObservationIdentity | null {
+  if (occurrence.datasetKey !== INATURALIST_GBIF_DATASET_KEY) {
+    return null;
+  }
+
+  const match = occurrence.occurrenceID?.match(
+    canonicalINaturalistOccurrenceIdPattern,
+  );
+  const externalId = match?.[1];
+
+  if (!externalId) {
+    return null;
+  }
+
+  return {
+    key: `inaturalist:${externalId}`,
+    provider: "inaturalist",
+    externalId,
+  };
 }
 
 function toGBIFLicense(value: string | null): GBIFObservationResult["license"] {

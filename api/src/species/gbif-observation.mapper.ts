@@ -26,6 +26,15 @@ export function mapGBIFObservation(
         }
       : null,
     locationPrivacy: "unknown",
+    deduplication: observation.canonicalIdentity
+      ? {
+          key: observation.canonicalIdentity.key,
+          method: "gbif-occurrence-id",
+        }
+      : {
+          key: `gbif:${observation.externalId}`,
+          method: "provider-record-id",
+        },
     source: {
       provider: "GBIF",
       externalId: String(observation.externalId),

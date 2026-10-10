@@ -31,6 +31,10 @@ describe("mapINaturalistObservation", () => {
         precision: "approximate",
       },
       locationPrivacy: "open",
+      deduplication: {
+        key: "inaturalist:405566287",
+        method: "provider-record-id",
+      },
       source: {
         provider: "iNaturalist",
         externalId: "405566287",

@@ -67,6 +67,10 @@ function createObservation(
       precision: "limited",
     },
     locationPrivacy: "obscured",
+    deduplication: {
+      key: "inaturalist:405566287",
+      method: "provider-record-id",
+    },
     source: {
       provider: "iNaturalist",
       externalId: "405566287",
@@ -79,13 +83,29 @@ function createObservation(
     },
   };
 
+  const source = {
+    ...observation.source,
+    ...overrides.source,
+  };
+
   return {
     ...observation,
     ...overrides,
-    source: {
-      ...observation.source,
-      ...overrides.source,
+    deduplication: overrides.deduplication ?? {
+      key: `${source.provider === "iNaturalist" ? "inaturalist" : source.provider.toLowerCase()}:${source.externalId}`,
+      method: "provider-record-id",
     },
+    source,
+  };
+}
+
+function toGroupedObservation(observation: SpeciesObservation) {
+  return {
+    observedOn: observation.observedOn,
+    observedAt: observation.observedAt,
+    location: observation.location,
+    locationPrivacy: observation.locationPrivacy,
+    sources: [observation.source],
   };
 }
 
@@ -185,6 +205,8 @@ describe("database persistence", () => {
           species_id,
           provider,
           external_id,
+          deduplication_key,
+          deduplication_method,
           observed_at,
           location,
           positional_accuracy_meters,
@@ -198,18 +220,22 @@ describe("database persistence", () => {
           $2,
           $3,
           $4,
-          extensions.ST_SetSRID(extensions.ST_MakePoint($5, $6), 4326),
-          $7,
-          $8,
+          $5,
+          $6,
+          extensions.ST_SetSRID(extensions.ST_MakePoint($7, $8), 4326),
           $9,
           $10,
-          $11
+          $11,
+          $12,
+          $13
         )
       `,
       [
         speciesId,
         "integration-test",
         "observation-1",
+        "integration-test:observation-1",
+        "provider-record-id",
         "2026-09-22T10:00:00.000Z",
         21.0122,
         52.2297,
@@ -737,7 +763,7 @@ describe("database persistence", () => {
     await expect(
       observationRepository.findWithinBoundingBox(speciesId, boundingBox, 1),
     ).resolves.toEqual({
-      observations: [newestObservation],
+      observations: [toGroupedObservation(newestObservation)],
       truncated: true,
     });
     await expect(
@@ -747,7 +773,10 @@ describe("database persistence", () => {
         1_000,
       ),
     ).resolves.toEqual({
-      observations: [newestObservation, boundaryObservation],
+      observations: [
+        toGroupedObservation(newestObservation),
+        toGroupedObservation(boundaryObservation),
+      ],
       truncated: false,
     });
     await expect(
@@ -757,6 +786,145 @@ describe("database persistence", () => {
         1_001,
       ),
     ).rejects.toThrow(RangeError);
+  });
+
+  it("groups only shared canonical identities and filters the chosen representative", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+    const nativeObservation = createObservation({
+      observedOn: "2026-10-05",
+      location: {
+        latitude: 52.2297,
+        longitude: 21.0122,
+        accuracyMeters: 500,
+        precision: "limited",
+      },
+      locationPrivacy: "obscured",
+      source: {
+        provider: "iNaturalist",
+        externalId: "405566300",
+        url: "https://www.inaturalist.org/observations/405566300",
+      },
+    });
+    const gbifMirror = createObservation({
+      observedOn: "2026-10-05",
+      location: {
+        latitude: 52.25,
+        longitude: 21.05,
+        accuracyMeters: 10,
+        precision: "approximate",
+      },
+      locationPrivacy: "unknown",
+      deduplication: {
+        key: "inaturalist:405566300",
+        method: "gbif-occurrence-id",
+      },
+      source: {
+        provider: "GBIF",
+        externalId: "6129944700",
+        url: "https://www.gbif.org/occurrence/6129944700",
+        dataset: {
+          externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          title: "iNaturalist Research-grade Observations",
+          url: "https://www.gbif.org/dataset/50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          publisher: null,
+        },
+      },
+    });
+    const similarButUnlinkedGBIFObservation = createObservation({
+      observedOn: "2026-10-05",
+      location: nativeObservation.location,
+      locationPrivacy: "unknown",
+      source: {
+        provider: "GBIF",
+        externalId: "6129944701",
+        url: "https://www.gbif.org/occurrence/6129944701",
+      },
+    });
+    const privateNativeObservation = createObservation({
+      observedOn: "2026-10-06",
+      location: null,
+      locationPrivacy: "private",
+      source: {
+        provider: "iNaturalist",
+        externalId: "405566301",
+        url: "https://www.inaturalist.org/observations/405566301",
+      },
+    });
+    const publicGBIFMirror = createObservation({
+      observedOn: "2026-10-06",
+      location: {
+        latitude: 52.3,
+        longitude: 21.1,
+        accuracyMeters: 10,
+        precision: "approximate",
+      },
+      locationPrivacy: "unknown",
+      deduplication: {
+        key: "inaturalist:405566301",
+        method: "gbif-occurrence-id",
+      },
+      source: {
+        provider: "GBIF",
+        externalId: "6129944702",
+        url: "https://www.gbif.org/occurrence/6129944702",
+        dataset: {
+          externalId: "50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          title: "iNaturalist Research-grade Observations",
+          url: "https://www.gbif.org/dataset/50c9509d-22c7-4a22-a47d-8c48425ef4a7",
+          publisher: null,
+        },
+      },
+    });
+
+    await observationRepository.upsertMany(speciesId, [
+      nativeObservation,
+      gbifMirror,
+      similarButUnlinkedGBIFObservation,
+      privateNativeObservation,
+      publicGBIFMirror,
+    ]);
+
+    const result = await observationRepository.findWithinBoundingBox(
+      speciesId,
+      { west: 20, south: 51, east: 22, north: 53 },
+      10,
+    );
+    const groupedObservation = result.observations.find(
+      (observation) => observation.sources.length === 2,
+    );
+
+    expect(result).toMatchObject({ truncated: false });
+    expect(result.observations).toHaveLength(2);
+    expect(groupedObservation).toEqual({
+      observedOn: nativeObservation.observedOn,
+      observedAt: nativeObservation.observedAt,
+      location: nativeObservation.location,
+      locationPrivacy: nativeObservation.locationPrivacy,
+      sources: [nativeObservation.source, gbifMirror.source],
+    });
+    expect(
+      result.observations.some((observation) =>
+        observation.sources.some(
+          (source) => source.externalId === "6129944702",
+        ),
+      ),
+    ).toBe(false);
+
+    await expect(
+      observationRepository.findWithinBoundingBox(
+        speciesId,
+        { west: 20, south: 51, east: 22, north: 53 },
+        1,
+      ),
+    ).resolves.toMatchObject({
+      observations: expect.arrayContaining([expect.any(Object)]),
+      truncated: true,
+    });
   });
 
   it("persists and reads exact observation page snapshots in provider order", async () => {
