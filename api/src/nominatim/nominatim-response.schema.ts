@@ -13,7 +13,7 @@ const boundingBoxSchema = z
 
 const nominatimPlaceSchema = z.object({
   osm_type: z.enum(["node", "way", "relation"]).optional(),
-  osm_id: z.number().int().positive().optional(),
+  osm_id: z.number().int().positive().safe().optional(),
   lat: latitudeSchema,
   lon: longitudeSchema,
   category: z.string().min(1),
@@ -23,9 +23,21 @@ const nominatimPlaceSchema = z.object({
   boundingbox: boundingBoxSchema,
 });
 
+const nominatimLookupPlaceSchema = nominatimPlaceSchema.extend({
+  address: z
+    .object({
+      country_code: z.string().trim().toLowerCase().optional(),
+    })
+    .optional(),
+});
+
 const nominatimSearchResponseSchema = z.array(nominatimPlaceSchema);
+const nominatimLookupResponseSchema = z.array(nominatimLookupPlaceSchema);
 
 export type NominatimPlaceResult = z.infer<typeof nominatimPlaceSchema>;
+export type NominatimLookupPlaceResult = z.infer<
+  typeof nominatimLookupPlaceSchema
+>;
 
 export function parseNominatimSearchResponse(
   response: unknown,
@@ -35,6 +47,21 @@ export function parseNominatimSearchResponse(
   if (!result.success) {
     throw new NominatimIntegrationError(
       "OpenStreetMap Nominatim returned an invalid search response",
+      { cause: result.error },
+    );
+  }
+
+  return result.data;
+}
+
+export function parseNominatimLookupResponse(
+  response: unknown,
+): NominatimLookupPlaceResult[] {
+  const result = nominatimLookupResponseSchema.safeParse(response);
+
+  if (!result.success) {
+    throw new NominatimIntegrationError(
+      "OpenStreetMap Nominatim returned an invalid lookup response",
       { cause: result.error },
     );
   }

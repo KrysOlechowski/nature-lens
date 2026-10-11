@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { NominatimIntegrationError } from "../src/nominatim/nominatim-integration.error.js";
-import { parseNominatimSearchResponse } from "../src/nominatim/nominatim-response.schema.js";
+import {
+  parseNominatimLookupResponse,
+  parseNominatimSearchResponse,
+} from "../src/nominatim/nominatim-response.schema.js";
 
 describe("parseNominatimSearchResponse", () => {
   it("validates the provider fields used by place mapping", () => {
@@ -109,4 +112,52 @@ describe("parseNominatimSearchResponse", () => {
       );
     },
   );
+});
+
+describe("parseNominatimLookupResponse", () => {
+  it("preserves normalized country evidence for lookup filtering", () => {
+    const response = [
+      {
+        address: {
+          country: "Poland",
+          country_code: " PL ",
+        },
+        boundingbox: ["49.9", "50.1", "20.2", "20.5"],
+        category: "landuse",
+        display_name: "Puszcza Niepołomicka, Poland",
+        lat: "50.03",
+        lon: "20.33",
+        osm_id: 61493,
+        osm_type: "relation",
+        type: "forest",
+      },
+    ];
+
+    expect(parseNominatimLookupResponse(response)).toEqual([
+      expect.objectContaining({
+        address: { country_code: "pl" },
+        osm_id: 61493,
+        osm_type: "relation",
+      }),
+    ]);
+  });
+
+  it("allows missing country evidence for later not-found handling", () => {
+    const response = [
+      {
+        boundingbox: ["49.9", "50.1", "20.2", "20.5"],
+        category: "landuse",
+        display_name: "Unverified place",
+        lat: "50.03",
+        lon: "20.33",
+        osm_id: 61493,
+        osm_type: "relation",
+        type: "forest",
+      },
+    ];
+
+    expect(parseNominatimLookupResponse(response)).toEqual([
+      expect.not.objectContaining({ address: expect.anything() }),
+    ]);
+  });
 });

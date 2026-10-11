@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
+import type { PlaceLookupProvider } from "../places/place-lookup-provider.contract.js";
 import type { PlaceSearchProvider } from "../places/place-search-provider.contract.js";
 import type { Place, PlaceType } from "../places/place.model.js";
 import {
@@ -11,10 +12,18 @@ import {
 } from "./nominatim.constants.js";
 import { throwNominatimProviderError } from "./nominatim-error.mapper.js";
 import {
+  decodeNominatimPlaceId,
+  encodeNominatimPlaceId,
+  type NominatimPlaceIdentity,
+} from "./nominatim-place-id.js";
+import {
+  type NominatimLookupPlaceResult,
   type NominatimPlaceResult,
+  parseNominatimLookupResponse,
   parseNominatimSearchResponse,
 } from "./nominatim-response.schema.js";
 import {
+  NOMINATIM_LOOKUP_URL,
   NOMINATIM_SEARCH_URL,
   NOMINATIM_USER_AGENT,
 } from "./nominatim.tokens.js";
@@ -24,18 +33,28 @@ interface CacheEntry {
   places: Place[];
 }
 
+interface PlaceCacheEntry {
+  expiresAt: number;
+  place: Place | null;
+}
+
 @Injectable()
-export class NominatimAdapter implements PlaceSearchProvider {
+export class NominatimAdapter
+  implements PlaceLookupProvider, PlaceSearchProvider
+{
   readonly providerName = NOMINATIM_PROVIDER;
 
   private readonly cache = new Map<string, CacheEntry>();
   private readonly inFlight = new Map<string, Promise<Place[]>>();
+  private readonly placeCache = new Map<string, PlaceCacheEntry>();
+  private readonly placeInFlight = new Map<string, Promise<Place | null>>();
   private requestQueue: Promise<void> = Promise.resolve();
   private lastRequestStartedAt = Number.NEGATIVE_INFINITY;
 
   constructor(
     private readonly externalHttpClient: ExternalHttpClient,
     @Inject(NOMINATIM_SEARCH_URL) private readonly searchUrl: string,
+    @Inject(NOMINATIM_LOOKUP_URL) private readonly lookupUrl: string,
     @Inject(NOMINATIM_USER_AGENT) private readonly userAgent: string,
   ) {}
 
@@ -77,6 +96,39 @@ export class NominatimAdapter implements PlaceSearchProvider {
     return request;
   }
 
+  async findPlaceById(placeId: string): Promise<Place | null> {
+    const identity = decodeNominatimPlaceId(placeId);
+
+    if (!identity) {
+      return null;
+    }
+
+    const cachedPlace = this.readPlaceCache(placeId);
+
+    if (cachedPlace !== undefined) {
+      return cachedPlace;
+    }
+
+    const existingRequest = this.placeInFlight.get(placeId);
+
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    const request = this.scheduleRequest(() => this.fetchPlace(identity))
+      .then((place) => {
+        this.writePlaceCache(placeId, place);
+        return place;
+      })
+      .finally(() => {
+        this.placeInFlight.delete(placeId);
+      });
+
+    this.placeInFlight.set(placeId, request);
+
+    return request;
+  }
+
   private async fetchPlaces(query: string): Promise<Place[]> {
     const url = new URL(this.searchUrl);
     url.searchParams.set("q", query);
@@ -92,11 +144,46 @@ export class NominatimAdapter implements PlaceSearchProvider {
         userAgent: this.userAgent,
       });
       const results = parseNominatimSearchResponse(response);
-
-      return results.flatMap((result) => {
+      const places = results.flatMap((result) => {
         const place = mapPlace(result);
         return place ? [place] : [];
       });
+
+      for (const place of places) {
+        this.writePlaceCache(place.id, place);
+      }
+
+      return places;
+    } catch (error) {
+      throwNominatimProviderError(error);
+    }
+  }
+
+  private async fetchPlace(
+    identity: NominatimPlaceIdentity,
+  ): Promise<Place | null> {
+    const url = new URL(this.lookupUrl);
+    url.searchParams.set("osm_ids", toNominatimLookupId(identity));
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("accept-language", "en");
+
+    try {
+      const response = await this.externalHttpClient.getJson({
+        provider: NOMINATIM_PROVIDER,
+        url,
+        userAgent: this.userAgent,
+      });
+      const expectedPlaceId = encodeNominatimPlaceId(identity);
+      const result = parseNominatimLookupResponse(response).find(
+        (candidate) => getPlaceId(candidate) === expectedPlaceId,
+      );
+
+      if (result?.address?.country_code !== "pl") {
+        return null;
+      }
+
+      return mapPlace(result);
     } catch (error) {
       throwNominatimProviderError(error);
     }
@@ -156,6 +243,37 @@ export class NominatimAdapter implements PlaceSearchProvider {
       places,
     });
   }
+
+  private readPlaceCache(key: string): Place | null | undefined {
+    const entry = this.placeCache.get(key);
+
+    if (!entry) {
+      return undefined;
+    }
+
+    if (entry.expiresAt <= Date.now()) {
+      this.placeCache.delete(key);
+      return undefined;
+    }
+
+    return entry.place;
+  }
+
+  private writePlaceCache(key: string, place: Place | null): void {
+    if (this.placeCache.size >= NOMINATIM_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.placeCache.keys().next().value as
+        string | undefined;
+
+      if (oldestKey) {
+        this.placeCache.delete(oldestKey);
+      }
+    }
+
+    this.placeCache.set(key, {
+      expiresAt: Date.now() + NOMINATIM_CACHE_TTL_MS,
+      place,
+    });
+  }
 }
 
 function mapPlace(result: NominatimPlaceResult): Place | null {
@@ -166,7 +284,10 @@ function mapPlace(result: NominatimPlaceResult): Place | null {
   const [south, north, west, east] = result.boundingbox;
 
   return {
-    id: `osm:${result.osm_type}:${result.osm_id}`,
+    id: encodeNominatimPlaceId({
+      osmId: result.osm_id,
+      osmType: result.osm_type,
+    }),
     slug: createSlug(result.name ?? result.display_name.split(",")[0] ?? ""),
     label: result.display_name,
     type: mapPlaceType(result.category, result.type),
@@ -184,6 +305,30 @@ function mapPlace(result: NominatimPlaceResult): Place | null {
             north,
           },
   };
+}
+
+function getPlaceId(result: NominatimLookupPlaceResult): string | null {
+  if (result.osm_type === undefined || result.osm_id === undefined) {
+    return null;
+  }
+
+  return encodeNominatimPlaceId({
+    osmId: result.osm_id,
+    osmType: result.osm_type,
+  });
+}
+
+function toNominatimLookupId({
+  osmId,
+  osmType,
+}: NominatimPlaceIdentity): string {
+  const prefix = {
+    node: "N",
+    relation: "R",
+    way: "W",
+  }[osmType];
+
+  return `${prefix}${osmId}`;
 }
 
 function mapPlaceType(category: string, type: string): PlaceType {

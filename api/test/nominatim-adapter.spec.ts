@@ -5,6 +5,7 @@ import { NominatimAdapter } from "../src/nominatim/nominatim.adapter.js";
 import { ProviderError } from "../src/provider-errors/provider.error.js";
 
 const SEARCH_URL = "https://nominatim.openstreetmap.org/search";
+const LOOKUP_URL = "https://nominatim.openstreetmap.org/lookup";
 const USER_AGENT = "NatureLens/0.1";
 
 function createAdapter() {
@@ -13,7 +14,12 @@ function createAdapter() {
   const getJson = vi.spyOn(externalHttpClient, "getJson");
 
   return {
-    adapter: new NominatimAdapter(externalHttpClient, SEARCH_URL, USER_AGENT),
+    adapter: new NominatimAdapter(
+      externalHttpClient,
+      SEARCH_URL,
+      LOOKUP_URL,
+      USER_AGENT,
+    ),
     getJson,
   };
 }
@@ -30,6 +36,16 @@ function relationResult() {
     osm_id: 61493,
     osm_type: "relation",
     type: "forest",
+  };
+}
+
+function polishRelationLookupResult() {
+  return {
+    ...relationResult(),
+    address: {
+      country: "Poland",
+      country_code: "pl",
+    },
   };
 }
 
@@ -87,6 +103,69 @@ describe("NominatimAdapter", () => {
         },
       ],
     );
+  });
+
+  it("looks up an OSM identity and verifies that the result belongs to Poland", async () => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue([polishRelationLookupResult()]);
+
+    await expect(adapter.findPlaceById("osm:relation:61493")).resolves.toEqual(
+      expect.objectContaining({
+        id: "osm:relation:61493",
+        type: "natural-area",
+      }),
+    );
+
+    expect(getJson).toHaveBeenCalledOnce();
+    const request = getJson.mock.calls[0]?.[0];
+
+    expect(request?.provider).toBe("OpenStreetMap Nominatim");
+    expect(request?.userAgent).toBe(USER_AGENT);
+    expect(request?.url.pathname).toBe("/lookup");
+    expect(Object.fromEntries(request?.url.searchParams ?? [])).toEqual({
+      "accept-language": "en",
+      addressdetails: "1",
+      format: "jsonv2",
+      osm_ids: "R61493",
+    });
+  });
+
+  it.each([
+    ["another country", { country_code: "de" }],
+    ["missing country evidence", { country: "Poland" }],
+  ])("does not expose a lookup result with %s", async (_case, address) => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue([
+      {
+        ...relationResult(),
+        address,
+      },
+    ]);
+
+    await expect(
+      adapter.findPlaceById("osm:relation:61493"),
+    ).resolves.toBeNull();
+  });
+
+  it("does not call Nominatim for an unsupported place ID", async () => {
+    const { adapter, getJson } = createAdapter();
+
+    await expect(
+      adapter.findPlaceById("unsupported:place:61493"),
+    ).resolves.toBeNull();
+    expect(getJson).not.toHaveBeenCalled();
+  });
+
+  it("seeds the identity cache from search results", async () => {
+    const { adapter, getJson } = createAdapter();
+    getJson.mockResolvedValue([relationResult()]);
+
+    const [place] = await adapter.searchPlaces("Puszcza Niepołomicka");
+
+    await expect(adapter.findPlaceById("osm:relation:61493")).resolves.toEqual(
+      place,
+    );
+    expect(getJson).toHaveBeenCalledOnce();
   });
 
   it("does not expose a provider-guessed bounding box for an OSM node", async () => {
@@ -167,14 +246,16 @@ describe("NominatimAdapter", () => {
     expect(getJson).toHaveBeenCalledOnce();
   });
 
-  it("spaces aggregate provider requests by at least one second", async () => {
+  it("spaces search and lookup requests through one aggregate limiter", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-11T10:00:00.000Z"));
     const { adapter, getJson } = createAdapter();
-    getJson.mockResolvedValue([]);
+    getJson
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([polishRelationLookupResult()]);
 
     await adapter.searchPlaces("first place");
-    const secondRequest = adapter.searchPlaces("second place");
+    const secondRequest = adapter.findPlaceById("osm:relation:61493");
 
     await Promise.resolve();
     expect(getJson).toHaveBeenCalledOnce();
@@ -183,7 +264,9 @@ describe("NominatimAdapter", () => {
     expect(getJson).toHaveBeenCalledOnce();
 
     await vi.advanceTimersByTimeAsync(1);
-    await expect(secondRequest).resolves.toEqual([]);
+    await expect(secondRequest).resolves.toEqual(
+      expect.objectContaining({ id: "osm:relation:61493" }),
+    );
     expect(getJson).toHaveBeenCalledTimes(2);
   });
 

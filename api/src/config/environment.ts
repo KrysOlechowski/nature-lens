@@ -27,6 +27,9 @@ const environmentSchema = z.object({
   NOMINATIM_SEARCH_URL: z
     .url({ protocol: /^https?$/ })
     .default("https://nominatim.openstreetmap.org/search"),
+  NOMINATIM_LOOKUP_URL: z
+    .url({ protocol: /^https?$/ })
+    .default("https://nominatim.openstreetmap.org/lookup"),
   NOMINATIM_USER_AGENT: z.string().trim().min(1).default("NatureLens/0.1"),
   OBSERVATION_FRESHNESS_WINDOW_SECONDS: z.coerce
     .number()

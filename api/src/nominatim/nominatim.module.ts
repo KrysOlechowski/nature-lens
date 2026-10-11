@@ -3,6 +3,8 @@ import { environment } from "../config/environment.js";
 import { ExternalHttpModule } from "../external-http/external-http.module.js";
 import { NominatimAdapter } from "./nominatim.adapter.js";
 import {
+  NOMINATIM_LOOKUP_URL,
+  NOMINATIM_PLACE_LOOKUP_PROVIDER,
   NOMINATIM_PLACE_SEARCH_PROVIDER,
   NOMINATIM_SEARCH_URL,
   NOMINATIM_USER_AGENT,
@@ -17,6 +19,14 @@ import {
       useExisting: NominatimAdapter,
     },
     {
+      provide: NOMINATIM_PLACE_LOOKUP_PROVIDER,
+      useExisting: NominatimAdapter,
+    },
+    {
+      provide: NOMINATIM_LOOKUP_URL,
+      useValue: environment.NOMINATIM_LOOKUP_URL,
+    },
+    {
       provide: NOMINATIM_SEARCH_URL,
       useValue: environment.NOMINATIM_SEARCH_URL,
     },
@@ -25,6 +35,6 @@ import {
       useValue: environment.NOMINATIM_USER_AGENT,
     },
   ],
-  exports: [NOMINATIM_PLACE_SEARCH_PROVIDER],
+  exports: [NOMINATIM_PLACE_LOOKUP_PROVIDER, NOMINATIM_PLACE_SEARCH_PROVIDER],
 })
 export class NominatimModule {}
