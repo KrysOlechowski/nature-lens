@@ -19,7 +19,7 @@ const speciesSearchResponseSchema = z.array(speciesSearchResultSchema);
 
 export type SpeciesSearchResult = z.infer<typeof speciesSearchResultSchema>;
 
-type SpeciesSearchResponse =
+export type SpeciesSearchResponse =
   | {
       status: "success";
       results: SpeciesSearchResult[];

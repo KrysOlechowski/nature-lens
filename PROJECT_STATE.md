@@ -2,26 +2,29 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Polish place search is available through a policy-aware OpenStreetMap Nominatim adapter
+> **Status:** Global search returns independently available species and Polish place results
 >
 > **Current phase:** Phase 7 · Place page and progressive multi-source UI
 >
-> **Last completed step:** 44 · Add OSM-backed place search adapter
+> **Last completed step:** 45 · Extend global search with places
 >
-> **Current step:** 45 · Extend global search with places
+> **Current step:** 46 · Add place detail page with map extent
 >
-> **Next step:** 46 · Add place detail page with map extent
+> **Next step:** 47 · Show biodiversity observations inside a place
 
 ## What currently works
 
 - The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
-- The English species search stores its trimmed query in the URL, calls the Nature Lens API only for nonempty queries, validates the complete public response with Zod, and renders non-fatal empty and unavailable states.
+- Global search stores its trimmed query in the URL, calls the Nature Lens API only for nonempty queries, and concurrently searches species and places through independently validated public contracts.
+- Species and place result groups preserve partial success: an unavailable source does not hide the other group, and successful empty results remain distinct from provider failures.
+- Place results link to the future `/places/[id]/[slug]` detail route and visibly attribute OpenStreetMap contributors.
 - Search results use stable application-owned species IDs and link to server-rendered `/species/[id]` pages with distinct not-found and temporary-failure behavior.
 - Species detail pages render persisted names and taxonomy before independently streaming the observation section through a section-level Suspense boundary.
 - Initial observation failures remain inside the map section and provide retry; viewport loading, failed refreshes, successful empty results, and truncated results have distinct UI states.
 - The MapLibre map is fitted to Poland, clusters observations, expands clusters, renders validated details in safe DOM popups, and preserves privacy and precision notices.
 - At zoom 7 or closer, map movement requests a debounced, bounded viewport query. Newer movements abort and invalidate older requests, and failed refreshes preserve the last successfully loaded data.
 - The API exposes health, species search, application-owned species details, paginated observation synchronization, and bounded observation GeoJSON endpoints.
+- The API exposes validated place search through a thin provider-neutral controller and service backed by the existing Nominatim adapter.
 - The API validates server-only configuration, creates one shared PostgreSQL pool, verifies the database connection before startup, and closes the pool during application shutdown.
 - Browser map requests use credential-free `GET` calls allowed only from the exact configured `WEB_ORIGIN`.
 - A controlled backend HTTP client provides JSON `GET`, configurable timeouts, provider-aware logging, and categorized transport failures.
@@ -87,6 +90,7 @@
 - Seasonality uses only the representative's provider-supplied `observed_on` value. It never derives a calendar bucket from `observed_at`; groups without `observed_on` contribute to `undatedCount`.
 - Seasonality describes only locally synchronized records. Its distribution can reflect incomplete provider coverage and uneven observation effort, and must not be presented as proof of continuous species presence.
 - Place identity is an opaque deterministic value derived only from a provider namespace and its stable object identity. Labels and slugs never participate in identity, consumers must not parse or construct IDs, and replacing a provider may change place IDs until places are persisted independently.
+- Place detail URLs use `/places/[id]/[slug]`: the opaque `id` is the only identity, while `slug` is display-only and must not participate in lookup or equality.
 - Nominatim-backed place identity uses the `osm` namespace plus `osm_type` and `osm_id`; provider classification and unstable Nominatim `place_id` never participate. Results without a stable OSM object identity are omitted.
 - Every place has a provider-supplied WGS84 center. A bounding box is preserved only when the provider supplies a reliable extent; otherwise it remains `null` and is never synthesized around the center.
 - Nominatim node bounding boxes are treated as provider-guessed display hints and are not exposed. Way and relation bounding boxes are preserved as provider extents.
@@ -113,7 +117,8 @@
 - Observations persisted before step 40 have nullable license and dataset provenance until a later provider synchronization supplies it.
 - Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
 - Seasonality contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
-- Places can be searched through the internal Nominatim adapter but are not yet persisted or exposed through an API endpoint; step 45 will connect them to global search and must display OpenStreetMap attribution.
+- Place results link to `/places/[id]/[slug]`, but the route and detail page do not exist until step 46.
+- Places are not yet persisted; global search results and their opaque provider-derived IDs come directly from the current adapter.
 - The Nominatim cache and rate limiter are process-local. This satisfies the current single-process MVP, but multiple API replicas would not provide an aggregate cross-process one-request-per-second limit and must not share the public endpoint without a different coordination or provider strategy.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
@@ -148,13 +153,14 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 44.
-- `pnpm lint`: passed after step 44.
-- `pnpm --filter api typecheck`: passed after step 44.
-- `pnpm --filter api test`: passed all 177 API unit tests after step 44.
+- `pnpm format:check`: passed after step 45.
+- Targeted ESLint passed for all files changed in step 45.
+- `pnpm --filter web typecheck`: passed after step 45.
+- `pnpm --filter api typecheck`: passed after step 45.
+- `pnpm --filter api test`: passed all 183 API unit tests after step 45.
 - `pnpm test:integration`: passed all 14 PostgreSQL/PostGIS persistence tests after step 42.
-- The API production build passed after step 44.
+- The API production build passed after step 45.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
-- `git diff --check`: passed after step 44.
-- Step 44 Definition of Done is satisfied: validated, Poland-restricted place search returns Puszcza Niepołomicka with provider-neutral identity, type, center, and bounding-box information while enforcing the public endpoint's MVP usage constraints.
+- `git diff --check`: passed after step 45.
+- Step 45 Definition of Done is satisfied: one search accepts either a species or a Polish place, groups typed results, preserves partial failures and empty states, and routes each result type toward its intended detail URL.
