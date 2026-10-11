@@ -9,6 +9,7 @@ import {
 export interface ExternalHttpRequest {
   provider: string;
   url: URL;
+  userAgent?: string;
 }
 
 @Injectable()
@@ -22,11 +23,21 @@ export class ExternalHttpClient {
     private readonly timeoutMs: number,
   ) {}
 
-  async getJson({ provider, url }: ExternalHttpRequest): Promise<unknown> {
+  async getJson({
+    provider,
+    url,
+    userAgent,
+  }: ExternalHttpRequest): Promise<unknown> {
     const normalizedProvider = provider.trim();
 
     if (!normalizedProvider) {
       throw new TypeError("External HTTP requests require a provider name");
+    }
+
+    const normalizedUserAgent = userAgent?.trim();
+
+    if (userAgent !== undefined && !normalizedUserAgent) {
+      throw new TypeError("External HTTP user agent cannot be blank");
     }
 
     const endpoint = `${url.origin}${url.pathname}`;
@@ -40,7 +51,10 @@ export class ExternalHttpClient {
 
     try {
       response = await this.request(url, {
-        headers: { accept: "application/json" },
+        headers: {
+          accept: "application/json",
+          ...(normalizedUserAgent ? { "user-agent": normalizedUserAgent } : {}),
+        },
         signal,
       });
     } catch (cause) {

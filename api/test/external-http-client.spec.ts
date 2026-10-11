@@ -41,6 +41,47 @@ describe("ExternalHttpClient", () => {
     );
   });
 
+  it("sends an application-specific user agent when requested", async () => {
+    const request = vi.fn<ExternalHttpFetch>().mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        headers: { "content-type": "application/json" },
+        status: 200,
+      }),
+    );
+    const client = new ExternalHttpClient(request, 5_000);
+    const url = new URL("https://nominatim.openstreetmap.org/search");
+
+    await client.getJson({
+      provider: "OpenStreetMap Nominatim",
+      url,
+      userAgent: "  NatureLens/0.1  ",
+    });
+
+    expect(request).toHaveBeenCalledWith(url, {
+      headers: {
+        accept: "application/json",
+        "user-agent": "NatureLens/0.1",
+      },
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("rejects a blank user agent before making a request", async () => {
+    const request = vi.fn<ExternalHttpFetch>();
+    const client = new ExternalHttpClient(request, 5_000);
+
+    await expect(
+      client.getJson({
+        provider: "OpenStreetMap Nominatim",
+        url: new URL("https://nominatim.openstreetmap.org/search"),
+        userAgent: "   ",
+      }),
+    ).rejects.toThrowError(
+      new TypeError("External HTTP user agent cannot be blank"),
+    );
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("reports non-successful HTTP responses", async () => {
     const request = vi
       .fn<ExternalHttpFetch>()
