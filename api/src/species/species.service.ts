@@ -28,6 +28,7 @@ import type {
   SpeciesObservationGeoJsonFeature,
   SpeciesObservationGeoJsonFeatureCollection,
 } from "./species-observation-geojson.model.js";
+import type { SpeciesObservationSeasonality } from "./species-observation-seasonality.model.js";
 import type {
   GroupedSpeciesObservation,
   SpeciesObservation,
@@ -250,6 +251,16 @@ export class SpeciesService {
         truncated: result.truncated,
       },
     };
+  }
+
+  async getObservationSeasonality(
+    speciesId: string,
+  ): Promise<SpeciesObservationSeasonality> {
+    if (!(await this.speciesRepository.exists(speciesId))) {
+      throw new NotFoundException("Species was not found");
+    }
+
+    return this.observationRepository.getSeasonality(speciesId);
   }
 }
 

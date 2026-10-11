@@ -652,6 +652,60 @@ describe("SpeciesService", () => {
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(findWithinBoundingBox).not.toHaveBeenCalled();
   });
+
+  it("returns seasonality for locally synchronized observation groups", async () => {
+    const seasonality = {
+      months: Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        count: index === 9 ? 4 : 0,
+      })),
+      years: [{ year: 2026, count: 4 }],
+      undatedCount: 1,
+      metadata: {
+        datasetScope: "locally-synchronized" as const,
+      },
+    };
+    const exists = vi.fn().mockResolvedValue(true);
+    const getSeasonality = vi.fn().mockResolvedValue(seasonality);
+    const service = new SpeciesService(
+      {} as INaturalistSpeciesSearchProvider,
+      {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
+      { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
+      { getSeasonality } as Pick<
+        ObservationRepository,
+        "getSeasonality"
+      > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
+    );
+
+    await expect(service.getObservationSeasonality("42")).resolves.toBe(
+      seasonality,
+    );
+    expect(exists).toHaveBeenCalledWith("42");
+    expect(getSeasonality).toHaveBeenCalledWith("42");
+  });
+
+  it("does not aggregate seasonality when the species is missing", async () => {
+    const exists = vi.fn().mockResolvedValue(false);
+    const getSeasonality = vi.fn();
+    const service = new SpeciesService(
+      {} as INaturalistSpeciesSearchProvider,
+      {} as INaturalistObservationProvider,
+      createGBIFObservationProvider(),
+      { exists } as Pick<SpeciesRepository, "exists"> as SpeciesRepository,
+      { getSeasonality } as Pick<
+        ObservationRepository,
+        "getSeasonality"
+      > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
+    );
+
+    await expect(
+      service.getObservationSeasonality("404"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(getSeasonality).not.toHaveBeenCalled();
+  });
 });
 
 function createObservationService({

@@ -104,24 +104,13 @@ export default async function SpeciesPage({ params }: SpeciesPageProps) {
               </CardContent>
             </Card>
 
-            <section aria-labelledby="species-map-heading" className="mt-10">
-              <h2
-                className="text-2xl font-semibold tracking-tight"
-                id="species-map-heading"
-              >
-                Map of Poland
-              </h2>
-              <p className="mt-2 mb-5 text-sm leading-relaxed text-stone-600">
-                Explore the geographic context for observations of this species.
-              </p>
-              <Suspense fallback={<SpeciesObservationsLoading />}>
-                <SpeciesObservationsSection
-                  apiBaseUrl={environment.NEXT_PUBLIC_API_BASE_URL}
-                  mapStyleUrl={environment.NEXT_PUBLIC_MAP_STYLE_URL}
-                  speciesId={id}
-                />
-              </Suspense>
-            </section>
+            <Suspense fallback={<SpeciesObservationsLoading />}>
+              <SpeciesObservationsSection
+                apiBaseUrl={environment.NEXT_PUBLIC_API_BASE_URL}
+                mapStyleUrl={environment.NEXT_PUBLIC_MAP_STYLE_URL}
+                speciesId={id}
+              />
+            </Suspense>
           </>
         )}
       </div>

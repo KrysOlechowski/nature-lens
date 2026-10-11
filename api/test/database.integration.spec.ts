@@ -927,6 +927,119 @@ describe("database persistence", () => {
     });
   });
 
+  it("aggregates deduplicated observation representatives by observed date", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const speciesId = await speciesRepository.upsert(createSpecies());
+    const otherSpeciesId = await speciesRepository.upsert(
+      createSpecies({
+        scientificName: "Bison bonasus",
+        commonName: "European bison",
+        displayName: "European bison",
+        source: {
+          provider: "iNaturalist",
+          externalId: "42420",
+        },
+      }),
+    );
+
+    await observationRepository.upsertMany(speciesId, [
+      createObservation({
+        observedOn: "2024-01-15",
+        location: null,
+        locationPrivacy: "private",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566310",
+          url: "https://www.inaturalist.org/observations/405566310",
+        },
+      }),
+      createObservation({
+        observedOn: "2025-02-15",
+        deduplication: {
+          key: "inaturalist:405566310",
+          method: "gbif-occurrence-id",
+        },
+        source: {
+          provider: "GBIF",
+          externalId: "6129944710",
+          url: "https://www.gbif.org/occurrence/6129944710",
+        },
+      }),
+      createObservation({
+        observedOn: "2026-01-20",
+        source: {
+          provider: "GBIF",
+          externalId: "6129944711",
+          url: "https://www.gbif.org/occurrence/6129944711",
+        },
+      }),
+      createObservation({
+        observedOn: null,
+        observedAt: "2025-12-31T23:30:00-02:00",
+        location: null,
+        locationPrivacy: "private",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566311",
+          url: "https://www.inaturalist.org/observations/405566311",
+        },
+      }),
+      createObservation({
+        observedOn: "2026-01-01",
+        deduplication: {
+          key: "inaturalist:405566311",
+          method: "gbif-occurrence-id",
+        },
+        source: {
+          provider: "GBIF",
+          externalId: "6129944712",
+          url: "https://www.gbif.org/occurrence/6129944712",
+        },
+      }),
+    ]);
+    await observationRepository.upsertMany(otherSpeciesId, [
+      createObservation({
+        observedOn: "2026-03-10",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566312",
+          url: "https://www.inaturalist.org/observations/405566312",
+        },
+      }),
+    ]);
+
+    await expect(
+      observationRepository.getSeasonality(speciesId),
+    ).resolves.toEqual({
+      months: [
+        { month: 1, count: 2 },
+        { month: 2, count: 0 },
+        { month: 3, count: 0 },
+        { month: 4, count: 0 },
+        { month: 5, count: 0 },
+        { month: 6, count: 0 },
+        { month: 7, count: 0 },
+        { month: 8, count: 0 },
+        { month: 9, count: 0 },
+        { month: 10, count: 0 },
+        { month: 11, count: 0 },
+        { month: 12, count: 0 },
+      ],
+      years: [
+        { year: 2024, count: 1 },
+        { year: 2026, count: 1 },
+      ],
+      undatedCount: 1,
+      metadata: {
+        datasetScope: "locally-synchronized",
+      },
+    });
+  });
+
   it("persists and reads exact observation page snapshots in provider order", async () => {
     const transactionDatabase = createTransactionDatabase(client);
     const speciesRepository = new SpeciesRepository(transactionDatabase);

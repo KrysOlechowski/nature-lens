@@ -12,6 +12,27 @@ import type {
   SpeciesObservationPageData,
   StoredSpeciesObservationPage,
 } from "./species-observation.model.js";
+import type { SpeciesObservationSeasonality } from "./species-observation-seasonality.model.js";
+
+const deduplicatedObservationGroupsCte = `
+  ranked_observations AS (
+    SELECT
+      observation.*,
+      row_number() OVER (
+        PARTITION BY observation.species_id, observation.deduplication_key
+        ORDER BY
+          CASE WHEN observation.provider = 'iNaturalist' THEN 0 ELSE 1 END,
+          observation.id
+      ) AS representative_rank
+    FROM observations AS observation
+    WHERE observation.species_id = $1
+  ),
+  deduplicated_observation_groups AS (
+    SELECT representative.*
+    FROM ranked_observations AS representative
+    WHERE representative.representative_rank = 1
+  )
+`;
 
 interface PersistedObservationInput {
   provider: string;
@@ -97,6 +118,12 @@ interface PersistedObservationPageRow extends PersistedObservationRow {
 interface SyncIdRow {
   id: string;
   last_successful_sync_at: Date;
+}
+
+interface ObservationSeasonalityRow {
+  bucket_type: "month" | "year" | "undated";
+  bucket: number;
+  observation_count: number;
 }
 
 export interface ObservationPageKey {
@@ -215,24 +242,12 @@ export class ObservationRepository {
         WITH bounds AS (
           SELECT extensions.ST_MakeEnvelope($2, $3, $4, $5, 4326) AS geometry
         ),
-        ranked_observations AS (
-          SELECT
-            observation.*,
-            row_number() OVER (
-              PARTITION BY observation.species_id, observation.deduplication_key
-              ORDER BY
-                CASE WHEN observation.provider = 'iNaturalist' THEN 0 ELSE 1 END,
-                observation.id
-            ) AS representative_rank
-          FROM observations AS observation
-          WHERE observation.species_id = $1
-        ),
+        ${deduplicatedObservationGroupsCte},
         bounded_groups AS (
           SELECT representative.*
-          FROM ranked_observations AS representative
+          FROM deduplicated_observation_groups AS representative
           CROSS JOIN bounds
-          WHERE representative.representative_rank = 1
-            AND representative.location IS NOT NULL
+          WHERE representative.location IS NOT NULL
             AND representative.location OPERATOR(extensions.&&) bounds.geometry
             AND extensions.ST_Intersects(
               representative.location,
@@ -296,6 +311,78 @@ export class ObservationRepository {
     return {
       observations: observations.slice(0, limit),
       truncated: observations.length > limit,
+    };
+  }
+
+  async getSeasonality(
+    speciesId: string,
+  ): Promise<SpeciesObservationSeasonality> {
+    const result = await this.database.query<ObservationSeasonalityRow>(
+      `
+        WITH
+        ${deduplicatedObservationGroupsCte},
+        calendar_months AS (
+          SELECT generate_series(1, 12) AS month
+        ),
+        monthly_counts AS (
+          SELECT
+            EXTRACT(MONTH FROM observed_on)::integer AS month,
+            count(*)::integer AS observation_count
+          FROM deduplicated_observation_groups
+          WHERE observed_on IS NOT NULL
+          GROUP BY month
+        ),
+        yearly_counts AS (
+          SELECT
+            EXTRACT(YEAR FROM observed_on)::integer AS year,
+            count(*)::integer AS observation_count
+          FROM deduplicated_observation_groups
+          WHERE observed_on IS NOT NULL
+          GROUP BY year
+        )
+        SELECT
+          'month' AS bucket_type,
+          calendar_months.month AS bucket,
+          COALESCE(monthly_counts.observation_count, 0)::integer
+            AS observation_count
+        FROM calendar_months
+        LEFT JOIN monthly_counts USING (month)
+
+        UNION ALL
+
+        SELECT
+          'year' AS bucket_type,
+          yearly_counts.year AS bucket,
+          yearly_counts.observation_count
+        FROM yearly_counts
+
+        UNION ALL
+
+        SELECT
+          'undated' AS bucket_type,
+          0 AS bucket,
+          count(*) FILTER (WHERE observed_on IS NULL)::integer
+            AS observation_count
+        FROM deduplicated_observation_groups
+
+        ORDER BY bucket_type, bucket
+      `,
+      [speciesId],
+    );
+
+    return {
+      months: result.rows
+        .filter((row) => row.bucket_type === "month")
+        .map((row) => ({ month: row.bucket, count: row.observation_count })),
+      years: result.rows
+        .filter((row) => row.bucket_type === "year")
+        .map((row) => ({ year: row.bucket, count: row.observation_count })),
+      undatedCount:
+        result.rows.find((row) => row.bucket_type === "undated")
+          ?.observation_count ?? 0,
+      metadata: {
+        datasetScope: "locally-synchronized",
+      },
     };
   }
 

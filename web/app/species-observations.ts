@@ -5,6 +5,10 @@ import {
   observationGeoJsonSchema,
   type SpeciesObservationGeoJson,
 } from "./species-observation-geojson";
+import {
+  observationSeasonalitySchema,
+  type SpeciesObservationSeasonality,
+} from "./species-observation-seasonality";
 
 export type SpeciesObservationsResponse =
   | {
@@ -15,13 +19,38 @@ export type SpeciesObservationsResponse =
       status: "unavailable";
     };
 
+export type SpeciesObservationSeasonalityResponse =
+  | {
+      status: "success";
+      seasonality: SpeciesObservationSeasonality;
+    }
+  | {
+      status: "unavailable";
+    };
+
+export interface SpeciesObservationData {
+  observations: SpeciesObservationsResponse;
+  seasonality: SpeciesObservationSeasonalityResponse;
+}
+
 const bootstrapPageSize = "200";
 
 export async function getSpeciesObservations(
   speciesId: string,
-): Promise<SpeciesObservationsResponse> {
+): Promise<SpeciesObservationData> {
   await bootstrapSpeciesObservations(speciesId);
 
+  const [observations, seasonality] = await Promise.all([
+    getSpatialObservations(speciesId),
+    getObservationSeasonality(speciesId),
+  ]);
+
+  return { observations, seasonality };
+}
+
+async function getSpatialObservations(
+  speciesId: string,
+): Promise<SpeciesObservationsResponse> {
   try {
     const url = createObservationsUrl(speciesId);
     const { west, south, east, north } = polandBoundingBox;
@@ -44,6 +73,36 @@ export async function getSpeciesObservations(
     }
 
     return { status: "success", observations: observations.data };
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+async function getObservationSeasonality(
+  speciesId: string,
+): Promise<SpeciesObservationSeasonalityResponse> {
+  try {
+    const response = await fetch(
+      new URL(
+        `/api/species/${speciesId}/observation-seasonality`,
+        environment.NEXT_PUBLIC_API_BASE_URL,
+      ),
+      { cache: "no-store" },
+    );
+
+    if (!response.ok) {
+      return { status: "unavailable" };
+    }
+
+    const seasonality = observationSeasonalitySchema.safeParse(
+      await response.json(),
+    );
+
+    if (!seasonality.success) {
+      return { status: "unavailable" };
+    }
+
+    return { status: "success", seasonality: seasonality.data };
   } catch {
     return { status: "unavailable" };
   }

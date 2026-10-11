@@ -486,6 +486,15 @@ the iNaturalist record has no public point. Query limits, truncation metadata,
 and map cluster counts therefore describe deduplicated groups rather than raw
 provider records.
 
+Temporal aggregations use the same shared representative-selection rule as
+spatial reads, so maps and analyses cannot assign different identities to the
+same observation group. Calendar month and year come only from the preserved
+provider `observed_on` date. A timestamp is not converted into a calendar date
+because persistence does not retain enough source timezone context to prevent
+day, month, or year shifts. Groups without `observed_on` are reported as
+undated, and temporal aggregation includes locally synchronized groups without
+public coordinates.
+
 ---
 
 ## 🐘 Persistence
@@ -852,6 +861,7 @@ Examples may include:
 GET /api/species/search?q=deer
 GET /api/species/:id
 GET /api/species/:id/observations
+GET /api/species/:id/observation-seasonality
 ```
 
 Later:

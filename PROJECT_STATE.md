@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** the species map synchronizes iNaturalist and mapped GBIF observations, conservatively groups exact cross-provider duplicates, and retains every source record
+> **Status:** species pages map deduplicated observations and show their locally synchronized monthly and yearly distribution
 >
 > **Current phase:** Phase 6 · GBIF, provenance, and first analyses
 >
-> **Last completed step:** 41 · Add conservative cross-provider deduplication
+> **Last completed step:** 42 · Add observation seasonality aggregation
 >
-> **Current step:** 42 · Add observation seasonality aggregation
+> **Current step:** 43 · Add Place domain contract
 >
-> **Next step:** 43 · Add Place domain contract
+> **Next step:** 44 · Add OSM-backed place search adapter
 
 ## What currently works
 
@@ -36,6 +36,8 @@
 - Observation provenance retains the provider record link, independently available license code and URL, and optional dataset identity, title, link, publisher name, and publisher organization ID through normalization, persistence, paginated responses, and GeoJSON responses.
 - GBIF records are linked to an iNaturalist observation only when they belong to the official iNaturalist GBIF dataset and contain the exact canonical iNaturalist observation URL. Similar dates or coordinates are never used for automatic deduplication.
 - Spatial observation results contain one feature per deduplicated group and retain every grouped source link. Map popups list all sources, and cluster counts operate on grouped features.
+- Species pages show locally synchronized observation counts across all 12 calendar months and by year, with undated groups reported separately and limitations explained.
+- The seasonality endpoint aggregates deduplicated observation groups in PostgreSQL, includes groups without public coordinates, and validates its complete response before frontend rendering.
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
 - Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior.
 - Local observations can be queried by a WGS84 bounding box and returned as a bounded GeoJSON `FeatureCollection<Point>` with explicit local-dataset and truncation metadata.
@@ -78,6 +80,9 @@
 - Bounding-box limits and truncation metadata count deduplicated groups rather than raw provider records; MapLibre consequently clusters one feature per group.
 - Location availability, privacy, and precision are separate concepts. Missing coordinates do not imply obscurity, and restricted locations never fall back to more precise non-public accuracy.
 - Observation dates and timestamps remain independent so date-only provider data does not receive invented temporal precision.
+- Spatial reads and seasonality share one SQL definition for selecting a deduplicated group representative: iNaturalist first, then stable observation ID.
+- Seasonality uses only the representative's provider-supplied `observed_on` value. It never derives a calendar bucket from `observed_at`; groups without `observed_on` contribute to `undatedCount`.
+- Seasonality describes only locally synchronized records. Its distribution can reflect incomplete provider coverage and uneven observation effort, and must not be presented as proof of continuous species presence.
 - WGS84 points use longitude-first coordinate order. Spatial reads are species-scoped, include bounding-box boundaries, use deterministic recency ordering, and return at most 1,000 records.
 - Bounding-box reads never contact providers. Their `locally-synchronized` dataset scope must not be presented as complete provider coverage.
 - Observation page synchronization atomically upserts normalized observations and replaces exact-page membership. Fresh pages avoid the provider; stale pages may fall back to persisted data after a controlled provider failure.
@@ -98,6 +103,7 @@
 - Paginated synchronization remains provider-page based. The public paginated response continues to describe the primary iNaturalist page, while the spatial read combines locally synchronized provider records.
 - Observations persisted before step 40 have nullable license and dataset provenance until a later provider synchronization supplies it.
 - Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
+- Seasonality contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
 
@@ -131,12 +137,12 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 41.
-- `pnpm lint`: passed after step 41.
-- `pnpm typecheck`: passed for the web and API applications after step 41.
-- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 152 API unit tests after step 41.
-- `pnpm test:integration`: passed all 13 PostgreSQL/PostGIS persistence tests after step 41.
-- The API production build passed after step 41.
+- `pnpm format:check`: passed after step 42.
+- `pnpm lint`: passed after step 42.
+- `pnpm typecheck`: passed for the web and API applications after step 42.
+- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 159 API unit tests after step 42.
+- `pnpm test:integration`: passed all 14 PostgreSQL/PostGIS persistence tests after step 42.
+- The API production build passed after step 42.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
-- `git diff --check`: passed after step 41.
-- Step 41 Definition of Done is satisfied: exact cross-provider duplicates can be grouped without deleting their provider records, and every grouped source remains traceable through the public spatial response.
+- `git diff --check`: passed after step 42.
+- Step 42 Definition of Done is satisfied: the species page shows the locally synchronized observation distribution over month and year and explains its temporal, coverage, and interpretation limitations.

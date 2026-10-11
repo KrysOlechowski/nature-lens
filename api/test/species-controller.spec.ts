@@ -145,6 +145,63 @@ describe("SpeciesController", () => {
     expect(getSpecies).not.toHaveBeenCalled();
   });
 
+  it("returns observation seasonality with all calendar buckets", async () => {
+    const getObservationSeasonality = vi.fn().mockResolvedValue({
+      months: Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        count: index === 0 ? 3 : 0,
+      })),
+      years: [{ year: 2026, count: 3 }],
+      undatedCount: 1,
+      metadata: {
+        datasetScope: "locally-synchronized",
+      },
+    });
+    const speciesService = {
+      getObservationSeasonality,
+    } as Pick<SpeciesService, "getObservationSeasonality"> as SpeciesService;
+    const controller = new SpeciesController(speciesService);
+
+    await expect(controller.getObservationSeasonality("42")).resolves.toEqual({
+      months: Array.from({ length: 12 }, (_, index) => ({
+        month: index + 1,
+        count: index === 0 ? 3 : 0,
+      })),
+      years: [{ year: 2026, count: 3 }],
+      undatedCount: 1,
+      metadata: {
+        datasetScope: "locally-synchronized",
+      },
+    });
+    expect(getObservationSeasonality).toHaveBeenCalledWith("42");
+  });
+
+  it.each([
+    ["zero", "0"],
+    ["non-numeric", "bison"],
+    ["repeated", ["42", "43"]],
+    ["outside PostgreSQL bigint range", "9223372036854775808"],
+  ])("rejects a %s seasonality species identifier", async (_case, id) => {
+    const getObservationSeasonality = vi.fn();
+    const speciesService = {
+      getObservationSeasonality,
+    } as Pick<SpeciesService, "getObservationSeasonality"> as SpeciesService;
+    const controller = new SpeciesController(speciesService);
+
+    const request = controller.getObservationSeasonality(id);
+
+    await expect(request).rejects.toBeInstanceOf(BadRequestException);
+    await expect(request).rejects.toMatchObject({
+      response: {
+        error: "Bad Request",
+        message: 'Path parameter "id" must be a positive integer',
+        statusCode: 400,
+      },
+      status: 400,
+    });
+    expect(getObservationSeasonality).not.toHaveBeenCalled();
+  });
+
   it("returns a normalized page of species observations with sync metadata", async () => {
     const getObservations = vi.fn().mockResolvedValue({
       totalResults: 1,

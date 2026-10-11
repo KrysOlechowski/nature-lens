@@ -12,6 +12,7 @@ import {
 } from "./observation.repository.js";
 import { SpeciesDetailDto } from "./species-detail.dto.js";
 import { SpeciesObservationGeoJsonDto } from "./species-observation-geojson.dto.js";
+import { SpeciesObservationSeasonalityDto } from "./species-observation-seasonality.dto.js";
 import { SpeciesObservationPageDto } from "./species-observation.dto.js";
 import { SpeciesSearchResultDto } from "./species-search-result.dto.js";
 import { SpeciesService } from "./species.service.js";
@@ -114,6 +115,23 @@ export class SpeciesController {
     const species = await this.speciesService.getSpecies(parsedId.data);
 
     return new SpeciesDetailDto(species);
+  }
+
+  @Get(":id/observation-seasonality")
+  async getObservationSeasonality(
+    @Param("id") id: unknown,
+  ): Promise<SpeciesObservationSeasonalityDto> {
+    const parsedId = positiveBigIntStringSchema.safeParse(id);
+
+    if (!parsedId.success) {
+      throw new BadRequestException(INVALID_SPECIES_ID_MESSAGE);
+    }
+
+    const seasonality = await this.speciesService.getObservationSeasonality(
+      parsedId.data,
+    );
+
+    return new SpeciesObservationSeasonalityDto(seasonality);
   }
 
   @Get(":id/observations")
