@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** species pages map deduplicated observations and show their locally synchronized monthly and yearly distribution
+> **Status:** the stable provider-neutral Place contract is defined for the upcoming place-search flow
 >
-> **Current phase:** Phase 6 · GBIF, provenance, and first analyses
+> **Current phase:** Phase 7 · Place page and progressive multi-source UI
 >
-> **Last completed step:** 42 · Add observation seasonality aggregation
+> **Last completed step:** 43 · Add Place domain contract
 >
-> **Current step:** 43 · Add Place domain contract
+> **Current step:** 44 · Add OSM-backed place search adapter
 >
-> **Next step:** 44 · Add OSM-backed place search adapter
+> **Next step:** 45 · Extend global search with places
 
 ## What currently works
 
@@ -38,6 +38,7 @@
 - Spatial observation results contain one feature per deduplicated group and retain every grouped source link. Map popups list all sources, and cluster counts operate on grouped features.
 - Species pages show locally synchronized observation counts across all 12 calendar months and by year, with undated groups reported separately and limitations explained.
 - The seasonality endpoint aggregates deduplicated observation groups in PostgreSQL, includes groups without public coordinates, and validates its complete response before frontend rendering.
+- The backend and frontend define the same provider-neutral Place contract with an opaque ID, display-only slug, required WGS84 center, nullable provider-supplied bounding box, and a compact application-owned place type.
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
 - Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior.
 - Local observations can be queried by a WGS84 bounding box and returned as a bounded GeoJSON `FeatureCollection<Point>` with explicit local-dataset and truncation metadata.
@@ -83,6 +84,9 @@
 - Spatial reads and seasonality share one SQL definition for selecting a deduplicated group representative: iNaturalist first, then stable observation ID.
 - Seasonality uses only the representative's provider-supplied `observed_on` value. It never derives a calendar bucket from `observed_at`; groups without `observed_on` contribute to `undatedCount`.
 - Seasonality describes only locally synchronized records. Its distribution can reflect incomplete provider coverage and uneven observation effort, and must not be presented as proof of continuous species presence.
+- Place identity is an opaque deterministic value derived only from a provider namespace and its stable object identity. Labels and slugs never participate in identity, consumers must not parse or construct IDs, and replacing a provider may change place IDs until places are persisted independently.
+- Every place has a provider-supplied WGS84 center. A bounding box is preserved only when the provider supplies a reliable extent; otherwise it remains `null` and is never synthesized around the center.
+- Place types are application-owned categories rather than raw provider classifications. The initial set is city, town, village, administrative area, natural area, and other.
 - WGS84 points use longitude-first coordinate order. Spatial reads are species-scoped, include bounding-box boundaries, use deterministic recency ordering, and return at most 1,000 records.
 - Bounding-box reads never contact providers. Their `locally-synchronized` dataset scope must not be presented as complete provider coverage.
 - Observation page synchronization atomically upserts normalized observations and replaces exact-page membership. Fresh pages avoid the provider; stale pages may fall back to persisted data after a controlled provider failure.
@@ -104,6 +108,7 @@
 - Observations persisted before step 40 have nullable license and dataset provenance until a later provider synchronization supplies it.
 - Bounding-box GeoJSON contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
 - Seasonality contains only observations already synchronized into PostgreSQL and is not complete provider coverage.
+- Places are not yet searched, persisted, or exposed through an API endpoint; step 43 defines only the internal and public contract needed by the upcoming adapter.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
 
@@ -137,12 +142,12 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 42.
-- `pnpm lint`: passed after step 42.
-- `pnpm typecheck`: passed for the web and API applications after step 42.
-- `WEB_ORIGIN=http://localhost:3000 pnpm test`: passed all 159 API unit tests after step 42.
+- `pnpm format:check`: passed after step 43.
+- `pnpm lint`: passed after step 43.
+- `pnpm typecheck`: passed for the web and API applications after step 43.
+- `pnpm --filter api test -- place-dto.spec.ts`: passed all 161 API unit tests after step 43.
 - `pnpm test:integration`: passed all 14 PostgreSQL/PostGIS persistence tests after step 42.
-- The API production build passed after step 42.
+- The API production build passed after step 43.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
-- `git diff --check`: passed after step 42.
-- Step 42 Definition of Done is satisfied: the species page shows the locally synchronized observation distribution over month and year and explains its temporal, coverage, and interpretation limitations.
+- `git diff --check`: passed after step 43.
+- Step 43 Definition of Done is satisfied: the frontend and backend define the same stable, provider-neutral Place contract without adding geocoding behavior prematurely.
