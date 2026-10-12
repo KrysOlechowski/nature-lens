@@ -5,9 +5,10 @@ import { HealthController } from "./health/health.controller.js";
 import { PlacesModule } from "./places/places.module.js";
 import { ProviderExceptionFilter } from "./provider-errors/provider-exception.filter.js";
 import { SpeciesModule } from "./species/species.module.js";
+import { WeatherModule } from "./weather/weather.module.js";
 
 @Module({
-  imports: [DatabaseModule, PlacesModule, SpeciesModule],
+  imports: [DatabaseModule, PlacesModule, SpeciesModule, WeatherModule],
   controllers: [HealthController],
   providers: [
     {

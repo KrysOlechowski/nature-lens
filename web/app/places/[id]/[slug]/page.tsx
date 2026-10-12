@@ -1,6 +1,7 @@
 import { ArrowLeft, MapPin } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { PlaceMap } from "@/components/place-map";
 import {
   Card,
@@ -10,6 +11,10 @@ import {
 } from "@/components/ui/card";
 import { environment } from "../../../../env";
 import { getPlace } from "../../../place-detail";
+import {
+  PlaceWeatherLoading,
+  PlaceWeatherSection,
+} from "./place-weather-section";
 
 interface PlacePageProps {
   params: Promise<{
@@ -60,6 +65,10 @@ export default async function PlacePage({ params }: PlacePageProps) {
             <p className="mt-5 max-w-2xl text-lg leading-relaxed text-stone-600">
               Explore the natural context of this place in Poland.
             </p>
+
+            <Suspense fallback={<PlaceWeatherLoading />}>
+              <PlaceWeatherSection center={response.place.center} />
+            </Suspense>
 
             <section aria-labelledby="place-map-heading" className="mt-10">
               <div className="mb-4">

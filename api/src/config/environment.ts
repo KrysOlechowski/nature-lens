@@ -31,6 +31,15 @@ const environmentSchema = z.object({
     .url({ protocol: /^https?$/ })
     .default("https://nominatim.openstreetmap.org/lookup"),
   NOMINATIM_USER_AGENT: z.string().trim().min(1).default("NatureLens/0.1"),
+  OPEN_METEO_FORECAST_URL: z
+    .url({ protocol: /^https?$/ })
+    .default("https://api.open-meteo.com/v1/forecast"),
+  WEATHER_FRESHNESS_WINDOW_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .max(3_600)
+    .default(300),
   OBSERVATION_FRESHNESS_WINDOW_SECONDS: z.coerce
     .number()
     .int()

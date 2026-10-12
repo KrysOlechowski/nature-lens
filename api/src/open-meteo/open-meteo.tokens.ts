@@ -1,0 +1,1 @@
+export const OPEN_METEO_FORECAST_URL = Symbol("OPEN_METEO_FORECAST_URL");
