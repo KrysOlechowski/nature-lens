@@ -927,6 +927,118 @@ describe("database persistence", () => {
     });
   });
 
+  it("queries all species with exact bbox totals before independent limits", async () => {
+    const transactionDatabase = createTransactionDatabase(client);
+    const speciesRepository = new SpeciesRepository(transactionDatabase);
+    const observationRepository = new ObservationRepository(
+      transactionDatabase,
+    );
+    const mooseId = await speciesRepository.upsert(createSpecies());
+    const bisonId = await speciesRepository.upsert(
+      createSpecies({
+        scientificName: "Bison bonasus",
+        commonName: "European bison",
+        displayName: "European bison",
+        source: {
+          provider: "iNaturalist",
+          externalId: "42420",
+        },
+      }),
+    );
+    const deerId = await speciesRepository.upsert(
+      createSpecies({
+        scientificName: "Cervus elaphus",
+        commonName: "Red deer",
+        displayName: "Red deer",
+        source: {
+          provider: "iNaturalist",
+          externalId: "42115",
+        },
+      }),
+    );
+
+    await observationRepository.upsertMany(mooseId, [
+      createObservation({
+        observedOn: "2026-10-01",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566320",
+          url: "https://www.inaturalist.org/observations/405566320",
+        },
+      }),
+      createObservation({
+        observedOn: "2026-10-02",
+        source: {
+          provider: "GBIF",
+          externalId: "6129944720",
+          url: "https://www.gbif.org/occurrence/6129944720",
+        },
+      }),
+    ]);
+    await observationRepository.upsertMany(bisonId, [
+      createObservation({
+        observedOn: "2026-10-03",
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566321",
+          url: "https://www.inaturalist.org/observations/405566321",
+        },
+      }),
+    ]);
+    await observationRepository.upsertMany(deerId, [
+      createObservation({
+        observedOn: "2026-10-04",
+        location: {
+          latitude: 54,
+          longitude: 24,
+          accuracyMeters: 10,
+          precision: "approximate",
+        },
+        source: {
+          provider: "iNaturalist",
+          externalId: "405566322",
+          url: "https://www.inaturalist.org/observations/405566322",
+        },
+      }),
+      createObservation({
+        observedOn: "2026-10-04",
+        deduplication: {
+          key: "inaturalist:405566322",
+          method: "gbif-occurrence-id",
+        },
+        source: {
+          provider: "GBIF",
+          externalId: "6129944721",
+          url: "https://www.gbif.org/occurrence/6129944721",
+        },
+      }),
+    ]);
+
+    const result = await observationRepository.findAllSpeciesWithinBoundingBox(
+      { west: 20, south: 51, east: 22, north: 53.9 },
+      1,
+      1,
+    );
+
+    expect(result.totalObservationCount).toBe(3);
+    expect(result.totalSpeciesCount).toBe(2);
+    expect(result.observations).toHaveLength(1);
+    expect(result.observations[0]?.species.id).toBe(bisonId);
+    expect(result.species).toEqual([
+      {
+        id: mooseId,
+        scientificName: "Alces alces",
+        displayName: "Moose",
+        observationCount: 2,
+      },
+    ]);
+    expect(
+      result.observations.some(
+        (observation) => observation.species.id === deerId,
+      ),
+    ).toBe(false);
+  });
+
   it("aggregates deduplicated observation representatives by observed date", async () => {
     const transactionDatabase = createTransactionDatabase(client);
     const speciesRepository = new SpeciesRepository(transactionDatabase);

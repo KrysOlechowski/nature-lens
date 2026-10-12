@@ -67,15 +67,16 @@ export default async function PlacePage({ params }: PlacePageProps) {
                   className="text-2xl font-semibold tracking-tight"
                   id="place-map-heading"
                 >
-                  Place map
+                  Biodiversity observations
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-stone-600">
                   {response.place.bbox
-                    ? "The map is fitted to the extent supplied for this place."
-                    : "No reliable extent is available, so the map is centered on the representative point supplied for this place."}
+                    ? "The initial map view uses the extent supplied for this place. Observations update to the currently visible area as you move the map."
+                    : "The initial map view is centered on the representative point supplied for this place. Observations update to the currently visible area as you move the map."}
                 </p>
               </div>
               <PlaceMap
+                apiBaseUrl={environment.NEXT_PUBLIC_API_BASE_URL}
                 bbox={response.place.bbox}
                 center={response.place.center}
                 label={response.place.label}

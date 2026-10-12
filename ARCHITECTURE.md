@@ -869,8 +869,15 @@ Later:
 ```http
 GET /api/species/:id/observations?bbox=...
 GET /api/places/:id
-GET /api/places/:id/observations
+GET /api/observations?bbox=...&limit=...&speciesLimit=...
 ```
+
+The general observations endpoint is viewport-based and provider-neutral. A
+place page uses its MapLibre viewport bounding box rather than treating the
+provider's place extent as an administrative boundary. Its feature limit and
+species-summary limit are independent; exact observation and species totals
+are calculated over the full bounding box before either response limit is
+applied.
 
 API contracts should be designed around product needs rather than mirroring provider endpoints.
 

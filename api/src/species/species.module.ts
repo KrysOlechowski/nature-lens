@@ -7,15 +7,18 @@ import { SpeciesController } from "./species.controller.js";
 import { SpeciesIdentityResolver } from "./species-identity.resolver.js";
 import { SpeciesRepository } from "./species.repository.js";
 import { SpeciesService } from "./species.service.js";
+import { SpatialObservationsController } from "./spatial-observations.controller.js";
+import { SpatialObservationsService } from "./spatial-observations.service.js";
 
 @Module({
   imports: [DatabaseModule, GBIFModule, INaturalistModule],
-  controllers: [SpeciesController],
+  controllers: [SpeciesController, SpatialObservationsController],
   providers: [
     ObservationRepository,
     SpeciesIdentityResolver,
     SpeciesRepository,
     SpeciesService,
+    SpatialObservationsService,
   ],
   exports: [SpeciesService],
 })

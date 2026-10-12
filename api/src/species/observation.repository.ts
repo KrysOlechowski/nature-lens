@@ -13,8 +13,15 @@ import type {
   StoredSpeciesObservationPage,
 } from "./species-observation.model.js";
 import type { SpeciesObservationSeasonality } from "./species-observation-seasonality.model.js";
+import type {
+  SpatialObservation,
+  SpatialObservationSpeciesSummary,
+} from "./spatial-observation.model.js";
 
-const deduplicatedObservationGroupsCte = `
+function createDeduplicatedObservationGroupsCte(
+  speciesFilter?: string,
+): string {
+  return `
   ranked_observations AS (
     SELECT
       observation.*,
@@ -25,7 +32,7 @@ const deduplicatedObservationGroupsCte = `
           observation.id
       ) AS representative_rank
     FROM observations AS observation
-    WHERE observation.species_id = $1
+    ${speciesFilter ? `WHERE ${speciesFilter}` : ""}
   ),
   deduplicated_observation_groups AS (
     SELECT representative.*
@@ -33,6 +40,10 @@ const deduplicatedObservationGroupsCte = `
     WHERE representative.representative_rank = 1
   )
 `;
+}
+
+const speciesDeduplicatedObservationGroupsCte =
+  createDeduplicatedObservationGroupsCte("observation.species_id = $1");
 
 interface PersistedObservationInput {
   provider: string;
@@ -108,6 +119,34 @@ interface PersistedGroupedObservationRow {
   source_publisher_name: string | null;
 }
 
+interface PersistedSpatialObservationRow {
+  observation_id: string | null;
+  species_id: string | null;
+  species_scientific_name: string | null;
+  species_display_name: string | null;
+  deduplication_key: string | null;
+  observed_on: string | null;
+  observed_at: Date | null;
+  longitude: number | null;
+  latitude: number | null;
+  positional_accuracy_meters: number | null;
+  location_privacy: ObservationLocationPrivacy | null;
+  location_precision: ObservationLocationPrecision | null;
+  source_provider: string | null;
+  source_external_id: string | null;
+  source_url: string | null;
+  source_license_code: string | null;
+  source_license_url: string | null;
+  source_dataset_external_id: string | null;
+  source_dataset_title: string | null;
+  source_dataset_url: string | null;
+  source_publisher_external_id: string | null;
+  source_publisher_name: string | null;
+  total_observation_count: number;
+  total_species_count: number;
+  species_items: SpatialObservationSpeciesSummary[];
+}
+
 interface PersistedObservationPageRow extends PersistedObservationRow {
   total_results: number;
   page: number;
@@ -143,7 +182,15 @@ export interface ObservationBoundingBoxResult {
   truncated: boolean;
 }
 
+export interface AllSpeciesObservationBoundingBoxResult {
+  observations: SpatialObservation[];
+  species: SpatialObservationSpeciesSummary[];
+  totalObservationCount: number;
+  totalSpeciesCount: number;
+}
+
 export const MAX_BOUNDING_BOX_OBSERVATIONS = 1_000;
+export const MAX_BOUNDING_BOX_SPECIES = 100;
 
 @Injectable()
 export class ObservationRepository {
@@ -242,7 +289,7 @@ export class ObservationRepository {
         WITH bounds AS (
           SELECT extensions.ST_MakeEnvelope($2, $3, $4, $5, 4326) AS geometry
         ),
-        ${deduplicatedObservationGroupsCte},
+        ${speciesDeduplicatedObservationGroupsCte},
         bounded_groups AS (
           SELECT representative.*
           FROM deduplicated_observation_groups AS representative
@@ -314,13 +361,166 @@ export class ObservationRepository {
     };
   }
 
+  async findAllSpeciesWithinBoundingBox(
+    boundingBox: ObservationBoundingBox,
+    observationLimit: number,
+    speciesLimit: number,
+  ): Promise<AllSpeciesObservationBoundingBoxResult> {
+    validateBoundingBoxLimit(
+      observationLimit,
+      MAX_BOUNDING_BOX_OBSERVATIONS,
+      "observation",
+    );
+    validateBoundingBoxLimit(speciesLimit, MAX_BOUNDING_BOX_SPECIES, "species");
+
+    const result = await this.database.query<PersistedSpatialObservationRow>(
+      `
+        WITH bounds AS (
+          SELECT extensions.ST_MakeEnvelope($1, $2, $3, $4, 4326) AS geometry
+        ),
+        ${createDeduplicatedObservationGroupsCte()},
+        bounded_groups AS (
+          SELECT representative.*
+          FROM deduplicated_observation_groups AS representative
+          CROSS JOIN bounds
+          WHERE representative.location IS NOT NULL
+            AND representative.location OPERATOR(extensions.&&) bounds.geometry
+            AND extensions.ST_Intersects(
+              representative.location,
+              bounds.geometry
+            )
+        ),
+        observation_totals AS (
+          SELECT
+            count(*)::integer AS total_observation_count,
+            count(DISTINCT species_id)::integer AS total_species_count
+          FROM bounded_groups
+        ),
+        species_counts AS (
+          SELECT
+            species.id::text AS id,
+            species.scientific_name,
+            COALESCE(species.display_name, species.scientific_name)
+              AS display_name,
+            count(*)::integer AS observation_count
+          FROM bounded_groups
+          INNER JOIN species ON species.id = bounded_groups.species_id
+          GROUP BY
+            species.id,
+            species.scientific_name,
+            species.display_name
+          ORDER BY
+            observation_count DESC,
+            display_name,
+            species.scientific_name,
+            species.id
+          LIMIT $6
+        ),
+        species_summary AS (
+          SELECT COALESCE(
+            jsonb_agg(
+              jsonb_build_object(
+                'id', id,
+                'scientificName', scientific_name,
+                'displayName', display_name,
+                'observationCount', observation_count
+              )
+              ORDER BY
+                observation_count DESC,
+                display_name,
+                scientific_name,
+                id
+            ),
+            '[]'::jsonb
+          ) AS items
+          FROM species_counts
+        ),
+        limited_groups AS (
+          SELECT representative.*
+          FROM bounded_groups AS representative
+          ORDER BY
+            COALESCE(
+              representative.observed_on,
+              representative.observed_at::date
+            ) DESC NULLS LAST,
+            representative.observed_at DESC NULLS LAST,
+            representative.id DESC
+          LIMIT $5
+        )
+        SELECT
+          representative.id::text AS observation_id,
+          representative.species_id::text,
+          species.scientific_name AS species_scientific_name,
+          COALESCE(species.display_name, species.scientific_name)
+            AS species_display_name,
+          representative.deduplication_key,
+          representative.observed_on::text,
+          representative.observed_at,
+          extensions.ST_X(representative.location) AS longitude,
+          extensions.ST_Y(representative.location) AS latitude,
+          representative.positional_accuracy_meters,
+          representative.location_privacy,
+          representative.location_precision,
+          source.provider AS source_provider,
+          source.external_id AS source_external_id,
+          source.source_url,
+          source.license_code AS source_license_code,
+          source.license_url AS source_license_url,
+          source.dataset_external_id AS source_dataset_external_id,
+          source.dataset_title AS source_dataset_title,
+          source.dataset_url AS source_dataset_url,
+          source.publisher_external_id AS source_publisher_external_id,
+          source.publisher_name AS source_publisher_name,
+          observation_totals.total_observation_count,
+          observation_totals.total_species_count,
+          species_summary.items AS species_items
+        FROM observation_totals
+        CROSS JOIN species_summary
+        LEFT JOIN limited_groups AS representative ON true
+        LEFT JOIN species ON species.id = representative.species_id
+        LEFT JOIN observations AS source
+          ON source.species_id = representative.species_id
+          AND source.deduplication_key = representative.deduplication_key
+        ORDER BY
+          COALESCE(
+            representative.observed_on,
+            representative.observed_at::date
+          ) DESC NULLS LAST,
+          representative.observed_at DESC NULLS LAST,
+          representative.id DESC,
+          CASE WHEN source.provider = 'iNaturalist' THEN 0 ELSE 1 END,
+          source.id
+      `,
+      [
+        boundingBox.west,
+        boundingBox.south,
+        boundingBox.east,
+        boundingBox.north,
+        observationLimit,
+        speciesLimit,
+      ],
+    );
+    const metadata = result.rows[0];
+
+    if (!metadata) {
+      throw new Error("Spatial observation query did not return metadata");
+    }
+
+    return {
+      observations: toSpatialObservations(result.rows),
+      species: metadata.species_items,
+      totalObservationCount: metadata.total_observation_count,
+      totalSpeciesCount: metadata.total_species_count,
+    };
+  }
+
   async getSeasonality(
     speciesId: string,
   ): Promise<SpeciesObservationSeasonality> {
     const result = await this.database.query<ObservationSeasonalityRow>(
       `
         WITH
-        ${deduplicatedObservationGroupsCte},
+        ${speciesDeduplicatedObservationGroupsCte},
         calendar_months AS (
           SELECT generate_series(1, 12) AS month
         ),
@@ -762,6 +962,83 @@ function toGroupedSpeciesObservations(
   }
 
   return [...observations.values()];
+}
+
+function toSpatialObservations(
+  rows: PersistedSpatialObservationRow[],
+): SpatialObservation[] {
+  const observations = new Map<string, SpatialObservation>();
+
+  for (const row of rows) {
+    if (
+      row.observation_id === null ||
+      row.species_id === null ||
+      row.species_scientific_name === null ||
+      row.species_display_name === null ||
+      row.deduplication_key === null ||
+      row.longitude === null ||
+      row.latitude === null ||
+      row.location_privacy === null ||
+      row.location_precision === null ||
+      row.source_provider === null ||
+      row.source_external_id === null ||
+      row.source_url === null
+    ) {
+      continue;
+    }
+
+    const groupKey = `${row.species_id}:${row.deduplication_key}`;
+    const existing = observations.get(groupKey);
+    const source = toObservationSource({
+      provider: row.source_provider,
+      externalId: row.source_external_id,
+      url: row.source_url,
+      licenseCode: row.source_license_code,
+      licenseUrl: row.source_license_url,
+      datasetExternalId: row.source_dataset_external_id,
+      datasetTitle: row.source_dataset_title,
+      datasetUrl: row.source_dataset_url,
+      publisherExternalId: row.source_publisher_external_id,
+      publisherName: row.source_publisher_name,
+    });
+
+    if (existing) {
+      existing.sources.push(source);
+      continue;
+    }
+
+    observations.set(groupKey, {
+      species: {
+        id: row.species_id,
+        scientificName: row.species_scientific_name,
+        displayName: row.species_display_name,
+      },
+      observedOn: row.observed_on,
+      observedAt: row.observed_at?.toISOString() ?? null,
+      location: {
+        longitude: row.longitude,
+        latitude: row.latitude,
+        accuracyMeters: row.positional_accuracy_meters,
+        precision: row.location_precision,
+      },
+      locationPrivacy: row.location_privacy,
+      sources: [source],
+    });
+  }
+
+  return [...observations.values()];
+}
+
+function validateBoundingBoxLimit(
+  limit: number,
+  maximum: number,
+  subject: string,
+): void {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > maximum) {
+    throw new RangeError(
+      `Bounding-box ${subject} limit must be an integer between 1 and ${maximum}`,
+    );
+  }
 }
 
 interface ObservationSourceFields {
