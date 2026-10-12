@@ -34,6 +34,9 @@ const environmentSchema = z.object({
   OPEN_METEO_FORECAST_URL: z
     .url({ protocol: /^https?$/ })
     .default("https://api.open-meteo.com/v1/forecast"),
+  GDOS_WFS_URL: z
+    .url({ protocol: /^https?$/ })
+    .default("https://sdi.gdos.gov.pl/wfs"),
   WEATHER_FRESHNESS_WINDOW_SECONDS: z.coerce
     .number()
     .int()

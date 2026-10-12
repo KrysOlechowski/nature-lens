@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import { Layers, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
@@ -16,6 +16,12 @@ import {
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Place } from "@/app/place";
+import {
+  protectedAreaCategorySchema,
+  protectedAreasSchema,
+  type ProtectedAreaCategory,
+  type ProtectedAreas,
+} from "@/app/protected-areas";
 import {
   maximumListedSpecies,
   maximumMapObservations,
@@ -41,10 +47,14 @@ interface PlaceMapProps {
 
 const centerFallbackZoom = 11;
 const observationFetchDebounceMs = 300;
+const protectedAreaFetchDebounceMs = 300;
 const observationsSourceId = "place-observations";
 const observationClustersLayerId = "place-observation-clusters";
 const observationClusterCountLayerId = "place-observation-cluster-count";
 const unclusteredObservationsLayerId = "place-observation-points";
+const protectedAreasSourceId = "place-protected-areas";
+const protectedAreasFillLayerId = "place-protected-areas-fill";
+const protectedAreasOutlineLayerId = "place-protected-areas-outline";
 const renderedObservationSourcesSchema = z
   .array(
     z.object({
@@ -74,12 +84,21 @@ const renderedObservationFeatureSchema = z.object({
     sourcesJson: z.string(),
   }),
 });
+const renderedProtectedAreaFeatureSchema = z.object({
+  properties: z.object({
+    category: protectedAreaCategorySchema,
+    inspireCode: z.string().min(1),
+    name: z.string().min(1),
+  }),
+});
 
 type ViewportRequestStatus = "loading" | "idle" | "error";
+type ProtectedAreasRequestStatus = "inactive" | "loading" | "idle" | "error";
 type RenderedObservation = z.infer<typeof renderedObservationFeatureSchema>;
 type RenderedObservationSource = z.infer<
   typeof renderedObservationSourcesSchema
 >[number];
+type RenderedProtectedArea = z.infer<typeof renderedProtectedAreaFeatureSchema>;
 
 export function PlaceMap({
   apiBaseUrl,
@@ -91,11 +110,19 @@ export function PlaceMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const retryViewportRequestRef = useRef<(() => void) | null>(null);
+  const retryProtectedAreasRequestRef = useRef<(() => void) | null>(null);
+  const toggleProtectedAreasRef = useRef<(() => void) | null>(null);
   const [observations, setObservations] = useState<SpatialObservations | null>(
     null,
   );
   const [viewportRequestStatus, setViewportRequestStatus] =
     useState<ViewportRequestStatus>("loading");
+  const [protectedAreas, setProtectedAreas] = useState<ProtectedAreas | null>(
+    null,
+  );
+  const [protectedAreasEnabled, setProtectedAreasEnabled] = useState(false);
+  const [protectedAreasRequestStatus, setProtectedAreasRequestStatus] =
+    useState<ProtectedAreasRequestStatus>("inactive");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -132,11 +159,20 @@ export function PlaceMap({
       closeOnClick: true,
       maxWidth: "20rem",
     });
+    const protectedAreaPopup = new Popup({
+      closeButton: true,
+      closeOnClick: true,
+      maxWidth: "20rem",
+    });
 
     mapRef.current = map;
     let observationFetchTimeout: ReturnType<typeof setTimeout> | undefined;
     let activeObservationRequest: AbortController | null = null;
     let latestObservationRequestId = 0;
+    let protectedAreaFetchTimeout: ReturnType<typeof setTimeout> | undefined;
+    let activeProtectedAreaRequest: AbortController | null = null;
+    let latestProtectedAreaRequestId = 0;
+    let protectedAreasAreEnabled = false;
 
     const invalidateObservationRequest = () => {
       latestObservationRequestId += 1;
@@ -149,6 +185,19 @@ export function PlaceMap({
       }
 
       return latestObservationRequestId;
+    };
+
+    const invalidateProtectedAreaRequest = () => {
+      latestProtectedAreaRequestId += 1;
+      activeProtectedAreaRequest?.abort();
+      activeProtectedAreaRequest = null;
+
+      if (protectedAreaFetchTimeout !== undefined) {
+        clearTimeout(protectedAreaFetchTimeout);
+        protectedAreaFetchTimeout = undefined;
+      }
+
+      return latestProtectedAreaRequestId;
     };
 
     const fetchObservationsForCurrentBounds = async (requestId: number) => {
@@ -222,6 +271,76 @@ export function PlaceMap({
       }
     };
 
+    const fetchProtectedAreasForCurrentBounds = async (requestId: number) => {
+      const requestController = new AbortController();
+      activeProtectedAreaRequest = requestController;
+
+      const isCurrentRequest = () =>
+        protectedAreasAreEnabled &&
+        !requestController.signal.aborted &&
+        requestId === latestProtectedAreaRequestId &&
+        mapRef.current === map;
+
+      try {
+        const bounds = map.getBounds();
+        const url = new URL("/api/protected-areas", apiBaseUrl);
+
+        url.searchParams.set(
+          "bbox",
+          [
+            clamp(bounds.getWest(), -180, 180),
+            clamp(bounds.getSouth(), -90, 90),
+            clamp(bounds.getEast(), -180, 180),
+            clamp(bounds.getNorth(), -90, 90),
+          ].join(","),
+        );
+
+        const response = await fetch(url, {
+          cache: "no-store",
+          signal: requestController.signal,
+        });
+
+        if (!response.ok) {
+          if (isCurrentRequest()) {
+            setProtectedAreasRequestStatus("error");
+          }
+
+          return;
+        }
+
+        const nextProtectedAreas = protectedAreasSchema.safeParse(
+          await response.json(),
+        );
+
+        if (!nextProtectedAreas.success || !isCurrentRequest()) {
+          if (!nextProtectedAreas.success && isCurrentRequest()) {
+            setProtectedAreasRequestStatus("error");
+          }
+
+          return;
+        }
+
+        protectedAreaPopup.remove();
+        map
+          .getSource<GeoJSONSource>(protectedAreasSourceId)
+          ?.setData(toRenderedProtectedAreaData(nextProtectedAreas.data));
+        setProtectedAreas(nextProtectedAreas.data);
+        setProtectedAreasRequestStatus("idle");
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        if (isCurrentRequest()) {
+          setProtectedAreasRequestStatus("error");
+        }
+      } finally {
+        if (activeProtectedAreaRequest === requestController) {
+          activeProtectedAreaRequest = null;
+        }
+      }
+    };
+
     const requestCurrentViewport = (debounced: boolean) => {
       const requestId = invalidateObservationRequest();
 
@@ -237,10 +356,70 @@ export function PlaceMap({
       }
     };
 
-    const handleMoveEnd = () => requestCurrentViewport(true);
+    const requestProtectedAreasForCurrentViewport = (debounced: boolean) => {
+      const requestId = invalidateProtectedAreaRequest();
+
+      setProtectedAreasRequestStatus("loading");
+
+      if (debounced) {
+        protectedAreaFetchTimeout = setTimeout(() => {
+          protectedAreaFetchTimeout = undefined;
+          void fetchProtectedAreasForCurrentBounds(requestId);
+        }, protectedAreaFetchDebounceMs);
+      } else {
+        void fetchProtectedAreasForCurrentBounds(requestId);
+      }
+    };
+
+    const handleMoveEnd = () => {
+      requestCurrentViewport(true);
+
+      if (protectedAreasAreEnabled) {
+        requestProtectedAreasForCurrentViewport(true);
+      }
+    };
     const retryViewportRequest = () => requestCurrentViewport(false);
+    const retryProtectedAreasRequest = () => {
+      if (protectedAreasAreEnabled) {
+        requestProtectedAreasForCurrentViewport(false);
+      }
+    };
+    const toggleProtectedAreas = () => {
+      if (
+        !map.getLayer(protectedAreasFillLayerId) ||
+        !map.getLayer(protectedAreasOutlineLayerId)
+      ) {
+        return;
+      }
+
+      protectedAreasAreEnabled = !protectedAreasAreEnabled;
+      setProtectedAreasEnabled(protectedAreasAreEnabled);
+
+      const visibility = protectedAreasAreEnabled ? "visible" : "none";
+
+      map.setLayoutProperty(
+        protectedAreasFillLayerId,
+        "visibility",
+        visibility,
+      );
+      map.setLayoutProperty(
+        protectedAreasOutlineLayerId,
+        "visibility",
+        visibility,
+      );
+
+      if (protectedAreasAreEnabled) {
+        requestProtectedAreasForCurrentViewport(false);
+      } else {
+        invalidateProtectedAreaRequest();
+        protectedAreaPopup.remove();
+        setProtectedAreasRequestStatus("inactive");
+      }
+    };
 
     retryViewportRequestRef.current = retryViewportRequest;
+    retryProtectedAreasRequestRef.current = retryProtectedAreasRequest;
+    toggleProtectedAreasRef.current = toggleProtectedAreas;
 
     const handleClusterClick = async (event: MapLayerMouseEvent) => {
       const cluster = event.features?.[0];
@@ -291,6 +470,21 @@ export function PlaceMap({
         .addTo(map);
     };
 
+    const handleProtectedAreaClick = (event: MapLayerMouseEvent) => {
+      const protectedArea = renderedProtectedAreaFeatureSchema.safeParse(
+        event.features?.[0],
+      );
+
+      if (!protectedArea.success) {
+        return;
+      }
+
+      protectedAreaPopup
+        .setLngLat(event.lngLat)
+        .setDOMContent(createProtectedAreaPopupContent(protectedArea.data))
+        .addTo(map);
+    };
+
     const showPointerCursor = () => {
       map.getCanvas().style.cursor = "pointer";
     };
@@ -299,6 +493,45 @@ export function PlaceMap({
     };
 
     const handleLoad = () => {
+      map.addSource(protectedAreasSourceId, {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] },
+      });
+      map.addLayer({
+        id: protectedAreasFillLayerId,
+        type: "fill",
+        source: protectedAreasSourceId,
+        layout: { visibility: "none" },
+        paint: {
+          "fill-color": [
+            "match",
+            ["get", "category"],
+            "national-park",
+            "#15803d",
+            "nature-reserve",
+            "#047857",
+            "natura-2000-bird",
+            "#0369a1",
+            "natura-2000-habitat",
+            "#0f766e",
+            "landscape-park",
+            "#65a30d",
+            "#a16207",
+          ],
+          "fill-opacity": 0.2,
+        },
+      });
+      map.addLayer({
+        id: protectedAreasOutlineLayerId,
+        type: "line",
+        source: protectedAreasSourceId,
+        layout: { visibility: "none" },
+        paint: {
+          "line-color": "#166534",
+          "line-opacity": 0.85,
+          "line-width": 1.5,
+        },
+      });
       map.addSource(observationsSourceId, {
         type: "geojson",
         data: { type: "FeatureCollection", features: [] },
@@ -361,10 +594,13 @@ export function PlaceMap({
       });
       map.on("click", observationClustersLayerId, handleClusterClick);
       map.on("click", unclusteredObservationsLayerId, handleObservationClick);
+      map.on("click", protectedAreasFillLayerId, handleProtectedAreaClick);
       map.on("mouseenter", observationClustersLayerId, showPointerCursor);
       map.on("mouseleave", observationClustersLayerId, restoreMapCursor);
       map.on("mouseenter", unclusteredObservationsLayerId, showPointerCursor);
       map.on("mouseleave", unclusteredObservationsLayerId, restoreMapCursor);
+      map.on("mouseenter", protectedAreasFillLayerId, showPointerCursor);
+      map.on("mouseleave", protectedAreasFillLayerId, restoreMapCursor);
       map.on("moveend", handleMoveEnd);
       requestCurrentViewport(false);
     };
@@ -385,17 +621,24 @@ export function PlaceMap({
 
     return () => {
       invalidateObservationRequest();
+      invalidateProtectedAreaRequest();
       retryViewportRequestRef.current = null;
+      retryProtectedAreasRequestRef.current = null;
+      toggleProtectedAreasRef.current = null;
       observationPopup.remove();
+      protectedAreaPopup.remove();
       marker.remove();
       map.off("load", handleLoad);
       map.off("moveend", handleMoveEnd);
       map.off("click", observationClustersLayerId, handleClusterClick);
       map.off("click", unclusteredObservationsLayerId, handleObservationClick);
+      map.off("click", protectedAreasFillLayerId, handleProtectedAreaClick);
       map.off("mouseenter", observationClustersLayerId, showPointerCursor);
       map.off("mouseleave", observationClustersLayerId, restoreMapCursor);
       map.off("mouseenter", unclusteredObservationsLayerId, showPointerCursor);
       map.off("mouseleave", unclusteredObservationsLayerId, restoreMapCursor);
+      map.off("mouseenter", protectedAreasFillLayerId, showPointerCursor);
+      map.off("mouseleave", protectedAreasFillLayerId, restoreMapCursor);
       map.remove();
       mapRef.current = null;
     };
@@ -411,6 +654,70 @@ export function PlaceMap({
           role="region"
         />
         <div className="pointer-events-none absolute top-3 left-3 z-10 grid max-w-80 gap-2">
+          <Button
+            aria-pressed={protectedAreasEnabled}
+            className="pointer-events-auto w-fit bg-white/95 shadow-sm backdrop-blur-sm"
+            onClick={() => toggleProtectedAreasRef.current?.()}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <Layers aria-hidden="true" />
+            Protected areas {protectedAreasEnabled ? "on" : "off"}
+          </Button>
+
+          {protectedAreasEnabled ? (
+            protectedAreasRequestStatus === "error" ? (
+              <div
+                className="pointer-events-auto rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-950 shadow-sm backdrop-blur-sm"
+                role="alert"
+              >
+                <p>
+                  We could not refresh protected areas for this view.
+                  {protectedAreas
+                    ? " The layer shows the last successfully loaded area."
+                    : " Place details and observations remain available."}
+                </p>
+                <Button
+                  className="mt-2"
+                  onClick={() => retryProtectedAreasRequestRef.current?.()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  <RefreshCw aria-hidden="true" />
+                  Retry protected areas
+                </Button>
+              </div>
+            ) : protectedAreasRequestStatus === "loading" ? (
+              <p
+                className="rounded-lg border border-stone-200 bg-white/95 px-3 py-2 text-xs leading-relaxed text-stone-700 shadow-sm backdrop-blur-sm"
+                role="status"
+              >
+                Loading protected areas for this view.
+                {protectedAreas ? " Previous results remain visible." : ""}
+              </p>
+            ) : protectedAreasRequestStatus === "idle" &&
+              protectedAreas?.metadata.returnedAreaCount === 0 ? (
+              <p
+                className="rounded-lg border border-stone-200 bg-white/95 px-3 py-2 text-xs leading-relaxed text-stone-700 shadow-sm backdrop-blur-sm"
+                role="status"
+              >
+                No protected areas were returned for this view.
+              </p>
+            ) : null
+          ) : null}
+
+          {protectedAreasEnabled && protectedAreas?.metadata.truncated ? (
+            <p
+              className="rounded-lg border border-amber-200 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-950 shadow-sm backdrop-blur-sm"
+              role="status"
+            >
+              Some protected areas are not shown because the last loaded view
+              exceeded the map limit.
+            </p>
+          ) : null}
+
           {viewportRequestStatus === "error" ? (
             <div
               className="pointer-events-auto rounded-lg border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs leading-relaxed text-amber-950 shadow-sm backdrop-blur-sm"
@@ -465,6 +772,25 @@ export function PlaceMap({
           ) : null}
         </div>
       </div>
+
+      {protectedAreasEnabled ? (
+        <p className="mt-3 text-xs leading-relaxed text-stone-500">
+          Protected areas data:{" "}
+          <a
+            className="underline underline-offset-2 hover:text-stone-800"
+            href={
+              protectedAreas?.metadata.sourceUrl ??
+              "https://www.gov.pl/web/gdos/dostep-do-danych-geoprzestrzennych"
+            }
+            rel="noreferrer"
+            target="_blank"
+          >
+            General Directorate for Environmental Protection (GDOŚ)
+          </a>
+          . Boundaries are informational and do not constitute a legally
+          authoritative determination.
+        </p>
+      ) : null}
 
       {observations ? (
         <div className="mt-6 grid gap-6 rounded-xl border border-stone-200 bg-white p-5 sm:p-6">
@@ -562,6 +888,52 @@ function toRenderedObservationData(data: SpatialObservations) {
       },
     })),
   };
+}
+
+function toRenderedProtectedAreaData(data: ProtectedAreas) {
+  return {
+    type: data.type,
+    features: data.features,
+  };
+}
+
+function createProtectedAreaPopupContent(
+  protectedArea: RenderedProtectedArea,
+): HTMLDivElement {
+  const content = document.createElement("div");
+  const title = document.createElement("p");
+  const category = document.createElement("p");
+  const sourceCode = document.createElement("p");
+
+  content.className = "w-64 pr-3 text-stone-900";
+  title.className = "text-sm font-semibold text-emerald-900";
+  title.textContent = protectedArea.properties.name;
+  category.className = "mt-1 text-xs text-stone-600";
+  category.textContent = formatProtectedAreaCategory(
+    protectedArea.properties.category,
+  );
+  sourceCode.className = "mt-3 text-xs text-stone-500";
+  sourceCode.textContent = `INSPIRE code: ${protectedArea.properties.inspireCode}`;
+  content.append(title, category, sourceCode);
+
+  return content;
+}
+
+function formatProtectedAreaCategory(category: ProtectedAreaCategory): string {
+  const labels = {
+    "documentation-site": "Documentation site",
+    "ecological-site": "Ecological site",
+    "landscape-park": "Landscape park",
+    "landscape-nature-complex": "Landscape-nature complex",
+    "national-park": "National park",
+    "natural-monument-area": "Surface natural monument",
+    "natura-2000-bird": "Natura 2000 bird protection area",
+    "natura-2000-habitat": "Natura 2000 habitat protection area",
+    "nature-reserve": "Nature reserve",
+    "protected-landscape-area": "Protected landscape area",
+  } satisfies Record<ProtectedAreaCategory, string>;
+
+  return labels[category];
 }
 
 function parseRenderedObservationSources(
