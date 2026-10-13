@@ -11,6 +11,7 @@ describe("ProtectedAreasController", () => {
       metadata: {
         attribution:
           "General Directorate for Environmental Protection (GDOŚ)" as const,
+        geometryPurpose: "display-simplified" as const,
         returnedAreaCount: 0,
         sourceUrl:
           "https://www.gov.pl/web/gdos/dostep-do-danych-geoprzestrzennych" as const,

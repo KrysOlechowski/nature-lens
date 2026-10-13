@@ -3,6 +3,7 @@ import type {
   ProtectedArea,
   ProtectedAreaCategory,
 } from "../protected-areas/protected-area.model.js";
+import { protectedAreaGeometrySchema } from "../protected-areas/protected-area-geometry.schema.js";
 import {
   GDOS_PROTECTED_AREA_FETCH_LIMIT,
   MAX_PROTECTED_AREAS_PER_VIEWPORT,
@@ -37,25 +38,10 @@ const layerCategories = {
 } as const satisfies Record<GdosProtectedAreaLayerName, ProtectedAreaCategory>;
 
 const layerNameSchema = z.enum(layerNames);
-const longitudeSchema = z.number().finite().min(-180).max(180);
-const latitudeSchema = z.number().finite().min(-90).max(90);
-const positionSchema = z.tuple([longitudeSchema, latitudeSchema]);
-const linearRingSchema = z.array(positionSchema).min(4);
-const polygonCoordinatesSchema = z.array(linearRingSchema).min(1);
-const geometrySchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("Polygon"),
-    coordinates: polygonCoordinatesSchema,
-  }),
-  z.object({
-    type: z.literal("MultiPolygon"),
-    coordinates: z.array(polygonCoordinatesSchema).min(1),
-  }),
-]);
 const featureSchema = z.object({
   type: z.literal("Feature"),
   id: z.string().min(1),
-  geometry: geometrySchema,
+  geometry: protectedAreaGeometrySchema,
   properties: z.object({
     nazwa: z.string().trim().min(1),
     kodinspire: z.string().trim().min(1),

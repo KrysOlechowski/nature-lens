@@ -787,8 +787,8 @@ export function PlaceMap({
           >
             General Directorate for Environmental Protection (GDOŚ)
           </a>
-          . Boundaries are informational and do not constitute a legally
-          authoritative determination.
+          . Boundaries are simplified for display, are informational, and do not
+          constitute a legally authoritative determination.
         </p>
       ) : null}
 

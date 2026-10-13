@@ -54,6 +54,7 @@ export interface ProtectedAreaFeatureCollection {
   features: ProtectedAreaFeature[];
   metadata: {
     attribution: "General Directorate for Environmental Protection (GDOŚ)";
+    geometryPurpose: "display-simplified";
     returnedAreaCount: number;
     sourceUrl: "https://www.gov.pl/web/gdos/dostep-do-danych-geoprzestrzennych";
     truncated: boolean;

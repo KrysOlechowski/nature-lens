@@ -47,6 +47,7 @@ export const protectedAreasSchema = z.object({
     attribution: z.literal(
       "General Directorate for Environmental Protection (GDOŚ)",
     ),
+    geometryPurpose: z.literal("display-simplified"),
     returnedAreaCount: z.number().int().nonnegative().max(200),
     sourceUrl: z.literal(
       "https://www.gov.pl/web/gdos/dostep-do-danych-geoprzestrzennych",

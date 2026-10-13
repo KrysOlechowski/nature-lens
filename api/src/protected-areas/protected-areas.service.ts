@@ -4,6 +4,7 @@ import type {
   ProtectedAreaBoundingBox,
   ProtectedAreaFeatureCollection,
 } from "./protected-area.model.js";
+import { simplifyProtectedAreasForPresentation } from "./protected-area-simplifier.js";
 import { PROTECTED_AREAS_PROVIDER } from "./protected-areas.tokens.js";
 
 const attribution =
@@ -22,17 +23,22 @@ export class ProtectedAreasService {
     boundingBox: ProtectedAreaBoundingBox,
   ): Promise<ProtectedAreaFeatureCollection> {
     const result = await this.provider.getWithinBoundingBox(boundingBox);
+    const presentationAreas = simplifyProtectedAreasForPresentation(
+      result.areas,
+      boundingBox,
+    );
 
     return {
       type: "FeatureCollection",
-      features: result.areas.map(({ geometry, ...properties }) => ({
+      features: presentationAreas.map(({ geometry, ...properties }) => ({
         type: "Feature",
         geometry,
         properties,
       })),
       metadata: {
         attribution,
-        returnedAreaCount: result.areas.length,
+        geometryPurpose: "display-simplified",
+        returnedAreaCount: presentationAreas.length,
         sourceUrl,
         truncated: result.truncated,
       },

@@ -5,12 +5,14 @@ import type {
 
 class ProtectedAreaMetadataDto {
   readonly attribution: ProtectedAreaFeatureCollection["metadata"]["attribution"];
+  readonly geometryPurpose: ProtectedAreaFeatureCollection["metadata"]["geometryPurpose"];
   readonly returnedAreaCount: number;
   readonly sourceUrl: ProtectedAreaFeatureCollection["metadata"]["sourceUrl"];
   readonly truncated: boolean;
 
   constructor(metadata: ProtectedAreaFeatureCollection["metadata"]) {
     this.attribution = metadata.attribution;
+    this.geometryPurpose = metadata.geometryPurpose;
     this.returnedAreaCount = metadata.returnedAreaCount;
     this.sourceUrl = metadata.sourceUrl;
     this.truncated = metadata.truncated;

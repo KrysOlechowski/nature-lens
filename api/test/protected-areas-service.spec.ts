@@ -45,6 +45,7 @@ describe("ProtectedAreasService", () => {
       ],
       metadata: {
         attribution: "General Directorate for Environmental Protection (GDOŚ)",
+        geometryPurpose: "display-simplified",
         returnedAreaCount: 1,
         sourceUrl:
           "https://www.gov.pl/web/gdos/dostep-do-danych-geoprzestrzennych",

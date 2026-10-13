@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Place pages progressively show current weather and locally synchronized biodiversity observations
+> **Status:** Place pages progressively combine biodiversity observations, current weather, and protected areas
 >
-> **Current phase:** Phase 7 · Place page and progressive multi-source UI
+> **Current phase:** Phase 8 · Multi-provider resilience and performance
 >
-> **Last completed step:** 48 · Add Open-Meteo weather section
+> **Last completed step:** 49 · Add GDOŚ protected areas layer
 >
-> **Current step:** 49 · Add GDOŚ protected areas layer
+> **Current step:** 50 · Add per-provider timeout and retry policies
 >
-> **Next step:** 50 · Add per-provider timeout and retry policies
+> **Next step:** 51 · Add provider-aware caching
 
 ## What currently works
 
@@ -21,6 +21,8 @@
 - Place maps query locally synchronized observations for their actual MapLibre viewport, cluster the returned subset, show exact full-bbox observation and species totals, and list species using full-bbox counts independently of the feature limit.
 - Place observation refreshes are debounced and cancel superseded requests. Initial and refresh failures remain inside the biodiversity section, while failed refreshes preserve the last successful map, totals, and species list.
 - Place pages independently stream current Open-Meteo model conditions for the place center. Weather loading and failures remain inside that section and do not block the place header, map, or biodiversity observations.
+- Place maps provide an independently toggleable GDOŚ protected-areas layer for the current viewport, with safe popups, attribution, a legal-accuracy disclaimer, bounded results, explicit truncation, and isolated loading, retry, and stale-data states.
+- The protected-areas API validates official WFS GeoJSON, normalizes supported Polygon and MultiPolygon conservation layers, and returns viewport-dependent display simplifications that are structurally revalidated before exposure.
 - Search results use stable application-owned species IDs and link to server-rendered `/species/[id]` pages with distinct not-found and temporary-failure behavior.
 - Species detail pages render persisted names and taxonomy before independently streaming the observation section through a section-level Suspense boundary.
 - Initial observation failures remain inside the map section and provide retry; viewport loading, failed refreshes, successful empty results, and truncated results have distinct UI states.
@@ -76,6 +78,8 @@
 - Provider adapters own endpoint details, query parameters, provider-specific validation, transport translation, and mapping into small integration types.
 - Open-Meteo `current` values are treated as model conditions rather than physical station measurements. Their Unix validity time is normalized by the backend to an unambiguous UTC `validAt` value.
 - Current weather uses a bounded 100-entry in-memory cache with a five-minute default freshness window configured by `WEATHER_FRESHNESS_WINDOW_SECONDS`. Expired entries are refreshed normally; provider failures are not hidden behind stale weather.
+- GDOŚ protected areas are fetched live from the official WFS only while the map layer is enabled. One combined bbox request covers the supported surface layers and asks for 201 features so the API can return at most 200 with exact `truncated` semantics.
+- Protected-area geometry is simplified only for map presentation after provider validation and normalization. Tolerance follows the viewport span with fixed minimum and maximum bounds; identity and properties do not depend on geometry, no protected-area data is persisted, and `geometryPurpose: "display-simplified"` remains distinct from feature truncation.
 - Provider DI tokens are capability- and provider-specific. `SpeciesService` depends on observation capabilities rather than concrete adapters and synchronizes mapped iNaturalist and GBIF pages without moving provider logic into the application layer.
 - GBIF occurrence `key` is stored as the provider-scoped external observation ID. It supports idempotency for the same GBIF record but is not treated as semantic occurrence identity or as a permanent cross-publication identifier.
 - License codes and URLs are independent optional representations. Nature Lens preserves only values supplied by a provider and does not invent a missing equivalent.
@@ -133,6 +137,7 @@
 - Places are not yet persisted; global search results and their opaque provider-derived IDs come directly from the current adapter.
 - The Nominatim cache and rate limiter are process-local. This satisfies the current single-process MVP, but multiple API replicas would not provide an aggregate cross-process one-request-per-second limit and must not share the public endpoint without a different coordination or provider strategy.
 - The Open-Meteo freshness cache is process-local and resets on restart. Multiple API replicas would cache independently.
+- GDOŚ protected-area boundaries are display-only, may be incomplete when `truncated` is true, and are not suitable for legal or spatial-analysis decisions. Turf simplification reduces transfer size but does not promise topology-preserving generalization.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
 
@@ -166,15 +171,15 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 48.
-- `pnpm lint`: passed after step 48.
-- `pnpm --filter web typecheck`: passed after step 48.
-- `pnpm --filter api typecheck`: passed after step 48.
-- `pnpm --filter api test`: passed all 241 API unit tests after step 48.
+- `pnpm format:check`: passed after step 49.
+- `pnpm lint`: passed after step 49.
+- `pnpm typecheck`: passed for the web and API applications after step 49.
+- `pnpm --filter api test`: passed all 258 API unit tests after step 49.
 - `pnpm test:integration`: the 15-test suite includes the step 47 all-species spatial query, but could not run after step 47 because Testcontainers found no working container runtime; all 14 preceding PostgreSQL/PostGIS persistence tests passed after step 42.
-- The API production build passed after step 48.
+- The API production build passed after step 49.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
-- `git diff --check`: passed after step 48.
-- Step 48 Definition of Done is satisfied: an Open-Meteo failure remains isolated to the independently loaded weather section and does not block the map or biodiversity observations.
+- A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
+- `git diff --check`: passed after step 49.
+- Step 49 Definition of Done is satisfied: protected areas are exposed through a provider-neutral API and available as a separately toggleable, attributed MapLibre layer with explicit incompleteness and display-geometry disclosures.
