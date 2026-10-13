@@ -1,5 +1,7 @@
 import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
+import { EXPENSIVE_REQUEST_THROTTLE } from "../request-protection/request-protection.config.js";
 import { CurrentWeatherDto } from "./weather.dto.js";
 import { WeatherService } from "./weather.service.js";
 
@@ -14,6 +16,7 @@ const INVALID_LONGITUDE_MESSAGE =
 export class WeatherController {
   constructor(private readonly weatherService: WeatherService) {}
 
+  @Throttle(EXPENSIVE_REQUEST_THROTTLE)
   @Get("current")
   async getCurrentWeather(
     @Query("latitude") latitude: unknown,

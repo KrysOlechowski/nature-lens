@@ -72,6 +72,7 @@ describe("SpeciesController", () => {
     ["empty", ""],
     ["blank", "   "],
     ["repeated", ["deer", "elk"]],
+    ["too long", "a".repeat(101)],
   ])("rejects a %s query with a bad request", async (_case, query) => {
     const searchSpecies = vi.fn();
     const speciesService = {
@@ -85,7 +86,8 @@ describe("SpeciesController", () => {
     await expect(request).rejects.toMatchObject({
       response: {
         error: "Bad Request",
-        message: 'Query parameter "q" must be a non-empty string',
+        message:
+          'Query parameter "q" must be a non-empty string no longer than 100 characters',
         statusCode: 400,
       },
       status: 400,
@@ -307,6 +309,30 @@ describe("SpeciesController", () => {
     });
   });
 
+  it("accepts the maximum supported observation result window", async () => {
+    const getObservations = vi.fn().mockResolvedValue({
+      totalResults: 100_000,
+      page: 500,
+      perPage: 200,
+      results: [],
+      metadata: {
+        servedFrom: "provider-sync",
+        freshness: "fresh",
+        lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+      },
+    });
+    const controller = new SpeciesController({
+      getObservations,
+    } as Pick<SpeciesService, "getObservations"> as SpeciesService);
+
+    await controller.getObservations("1696537", "500", "200");
+
+    expect(getObservations).toHaveBeenCalledWith("1696537", {
+      page: 500,
+      perPage: 200,
+    });
+  });
+
   it("returns bounded local observations as GeoJSON", async () => {
     const getObservationsWithinBoundingBox = vi.fn().mockResolvedValue({
       type: "FeatureCollection",
@@ -447,7 +473,7 @@ describe("SpeciesController", () => {
         response: {
           error: "Bad Request",
           message:
-            'Path parameter "id" must be a positive integer; "bbox" must contain west,south,east,north coordinates with valid ranges and increasing bounds; "limit" must be a positive integer no greater than 1000; spatial and pagination parameters cannot be combined',
+            'Path parameter "id" must be a positive integer; "bbox" must contain west,south,east,north coordinates with valid ranges, increasing non-antimeridian bounds, longitude span no greater than 20 degrees, and latitude span no greater than 15 degrees; "limit" must be a positive integer no greater than 1000; spatial and pagination parameters cannot be combined',
           statusCode: 400,
         },
         status: 400,
@@ -466,6 +492,8 @@ describe("SpeciesController", () => {
     ["repeated page", "1696537", ["1", "2"], undefined],
     ["zero page size", "1696537", undefined, "0"],
     ["oversized page size", "1696537", undefined, "201"],
+    ["oversized result window", "1696537", "501", "200"],
+    ["unsafe page", "1696537", "9007199254740992", "1"],
     ["repeated page size", "1696537", undefined, ["20", "50"]],
   ])("rejects a request with %s", async (_case, id, page, perPage) => {
     const getObservations = vi.fn();
@@ -481,7 +509,7 @@ describe("SpeciesController", () => {
       response: {
         error: "Bad Request",
         message:
-          'Path parameter "id" and query parameters "page" and "perPage" must be positive integers; "perPage" cannot exceed 200',
+          'Path parameter "id" and query parameters "page" and "perPage" must be positive integers; "perPage" cannot exceed 200; the requested page window cannot exceed 100000 records',
         statusCode: 400,
       },
       status: 400,

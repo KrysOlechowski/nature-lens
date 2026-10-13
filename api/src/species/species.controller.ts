@@ -5,11 +5,16 @@ import {
   Param,
   Query,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import {
-  MAX_BOUNDING_BOX_OBSERVATIONS,
-  type ObservationBoundingBox,
-} from "./observation.repository.js";
+  boundingBoxSchema,
+  isWithinPaginationResultWindow,
+  positiveIntegerStringSchema,
+  searchQuerySchema,
+} from "../request-protection/request-bounds.js";
+import { EXPENSIVE_REQUEST_THROTTLE } from "../request-protection/request-protection.config.js";
+import { MAX_BOUNDING_BOX_OBSERVATIONS } from "./observation.repository.js";
 import { SpeciesDetailDto } from "./species-detail.dto.js";
 import { SpeciesObservationGeoJsonDto } from "./species-observation-geojson.dto.js";
 import { SpeciesObservationSeasonalityDto } from "./species-observation-seasonality.dto.js";
@@ -17,15 +22,10 @@ import { SpeciesObservationPageDto } from "./species-observation.dto.js";
 import { SpeciesSearchResultDto } from "./species-search-result.dto.js";
 import { SpeciesService } from "./species.service.js";
 
-const speciesSearchQuerySchema = z.string().trim().min(1);
-const INVALID_QUERY_MESSAGE = 'Query parameter "q" must be a non-empty string';
+const INVALID_QUERY_MESSAGE =
+  'Query parameter "q" must be a non-empty string no longer than 100 characters';
 const INVALID_SPECIES_ID_MESSAGE =
   'Path parameter "id" must be a positive integer';
-const positiveIntegerStringSchema = z
-  .string()
-  .regex(/^[1-9]\d*$/)
-  .transform(Number)
-  .refine(Number.isSafeInteger);
 const maximumPostgreSqlBigInt = 9_223_372_036_854_775_807n;
 const positiveBigIntStringSchema = z
   .string()
@@ -34,42 +34,13 @@ const positiveBigIntStringSchema = z
     (value) =>
       !/^[1-9]\d*$/.test(value) || BigInt(value) <= maximumPostgreSqlBigInt,
   );
-const observationsRequestSchema = z.object({
-  speciesId: positiveBigIntStringSchema,
-  page: positiveIntegerStringSchema,
-  perPage: positiveIntegerStringSchema.refine((value) => value <= 200),
-});
-const coordinateStringSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .transform(Number)
-  .refine(Number.isFinite);
-const longitudeStringSchema = coordinateStringSchema.refine(
-  (value) => value >= -180 && value <= 180,
-);
-const latitudeStringSchema = coordinateStringSchema.refine(
-  (value) => value >= -90 && value <= 90,
-);
-const boundingBoxSchema = z
-  .string()
-  .transform((value) => value.split(","))
-  .pipe(
-    z.tuple([
-      longitudeStringSchema,
-      latitudeStringSchema,
-      longitudeStringSchema,
-      latitudeStringSchema,
-    ]),
-  )
-  .transform<ObservationBoundingBox>(([west, south, east, north]) => ({
-    west,
-    south,
-    east,
-    north,
-  }))
-  .refine(({ west, east }) => west < east)
-  .refine(({ south, north }) => south < north);
+const observationsRequestSchema = z
+  .object({
+    speciesId: positiveBigIntStringSchema,
+    page: positiveIntegerStringSchema,
+    perPage: positiveIntegerStringSchema.refine((value) => value <= 200),
+  })
+  .refine(isWithinPaginationResultWindow);
 const spatialObservationsRequestSchema = z.object({
   speciesId: positiveBigIntStringSchema,
   boundingBox: boundingBoxSchema,
@@ -78,9 +49,9 @@ const spatialObservationsRequestSchema = z.object({
   ),
 });
 const INVALID_OBSERVATIONS_REQUEST_MESSAGE =
-  'Path parameter "id" and query parameters "page" and "perPage" must be positive integers; "perPage" cannot exceed 200';
+  'Path parameter "id" and query parameters "page" and "perPage" must be positive integers; "perPage" cannot exceed 200; the requested page window cannot exceed 100000 records';
 const INVALID_SPATIAL_OBSERVATIONS_REQUEST_MESSAGE =
-  'Path parameter "id" must be a positive integer; "bbox" must contain west,south,east,north coordinates with valid ranges and increasing bounds; "limit" must be a positive integer no greater than 1000; spatial and pagination parameters cannot be combined';
+  'Path parameter "id" must be a positive integer; "bbox" must contain west,south,east,north coordinates with valid ranges, increasing non-antimeridian bounds, longitude span no greater than 20 degrees, and latitude span no greater than 15 degrees; "limit" must be a positive integer no greater than 1000; spatial and pagination parameters cannot be combined';
 const DEFAULT_OBSERVATIONS_PAGE = "1";
 const DEFAULT_OBSERVATIONS_PER_PAGE = "50";
 const DEFAULT_SPATIAL_OBSERVATIONS_LIMIT = "1000";
@@ -89,11 +60,12 @@ const DEFAULT_SPATIAL_OBSERVATIONS_LIMIT = "1000";
 export class SpeciesController {
   constructor(private readonly speciesService: SpeciesService) {}
 
+  @Throttle(EXPENSIVE_REQUEST_THROTTLE)
   @Get("search")
   async searchSpecies(
     @Query("q") query: unknown,
   ): Promise<SpeciesSearchResultDto[]> {
-    const parsedQuery = speciesSearchQuerySchema.safeParse(query);
+    const parsedQuery = searchQuerySchema.safeParse(query);
 
     if (!parsedQuery.success) {
       throw new BadRequestException(INVALID_QUERY_MESSAGE);
@@ -134,6 +106,7 @@ export class SpeciesController {
     return new SpeciesObservationSeasonalityDto(seasonality);
   }
 
+  @Throttle(EXPENSIVE_REQUEST_THROTTLE)
   @Get(":id/observations")
   async getObservations(
     @Param("id") id: unknown,

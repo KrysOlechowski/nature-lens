@@ -83,6 +83,7 @@ describe("PlacesController", () => {
     ["empty", ""],
     ["blank", "   "],
     ["repeated", ["Kraków", "Warsaw"]],
+    ["too long", "a".repeat(101)],
   ])("rejects a %s query with a bad request", async (_case, query) => {
     const searchPlaces = vi.fn();
     const placesService = {
@@ -96,7 +97,8 @@ describe("PlacesController", () => {
     await expect(request).rejects.toMatchObject({
       response: {
         error: "Bad Request",
-        message: 'Query parameter "q" must be a non-empty string',
+        message:
+          'Query parameter "q" must be a non-empty string no longer than 100 characters',
         statusCode: 400,
       },
       status: 400,

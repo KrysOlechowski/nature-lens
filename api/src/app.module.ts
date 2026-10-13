@@ -5,6 +5,7 @@ import { HealthController } from "./health/health.controller.js";
 import { PlacesModule } from "./places/places.module.js";
 import { ProtectedAreasModule } from "./protected-areas/protected-areas.module.js";
 import { ProviderExceptionFilter } from "./provider-errors/provider-exception.filter.js";
+import { RequestProtectionModule } from "./request-protection/request-protection.module.js";
 import { SpeciesModule } from "./species/species.module.js";
 import { WeatherModule } from "./weather/weather.module.js";
 
@@ -13,6 +14,7 @@ import { WeatherModule } from "./weather/weather.module.js";
     DatabaseModule,
     PlacesModule,
     ProtectedAreasModule,
+    RequestProtectionModule,
     SpeciesModule,
     WeatherModule,
   ],

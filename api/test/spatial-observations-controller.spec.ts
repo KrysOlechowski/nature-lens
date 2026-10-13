@@ -31,10 +31,10 @@ describe("SpatialObservationsController", () => {
     const controller = new SpatialObservationsController(service);
 
     await expect(
-      controller.getObservations("20,49,22,51", "500", "20"),
+      controller.getObservations("14.12,49,24.15,54.84", "500", "20"),
     ).resolves.toEqual(collection);
     expect(getWithinBoundingBox).toHaveBeenCalledWith(
-      { west: 20, south: 49, east: 22, north: 51 },
+      { west: 14.12, south: 49, east: 24.15, north: 54.84 },
       500,
       20,
     );
@@ -77,7 +77,10 @@ describe("SpatialObservationsController", () => {
     ["missing bbox", undefined, undefined, undefined],
     ["repeated bbox", ["20,49,22,51"], undefined, undefined],
     ["reversed longitude", "22,49,20,51", undefined, undefined],
+    ["antimeridian crossing", "170,49,-170,51", undefined, undefined],
     ["out-of-range latitude", "20,-91,22,51", undefined, undefined],
+    ["excessive longitude span", "0,49,21,51", undefined, undefined],
+    ["excessive latitude span", "20,0,22,16", undefined, undefined],
     ["zero feature limit", "20,49,22,51", "0", undefined],
     ["excessive feature limit", "20,49,22,51", "1001", undefined],
     ["zero species limit", "20,49,22,51", undefined, "0"],
@@ -102,7 +105,7 @@ describe("SpatialObservationsController", () => {
       response: {
         error: "Bad Request",
         message:
-          'Query parameter "bbox" must contain west,south,east,north coordinates with valid ranges and increasing bounds; "limit" must be a positive integer no greater than 1000; "speciesLimit" must be a positive integer no greater than 100',
+          'Query parameter "bbox" must contain west,south,east,north coordinates with valid ranges, increasing non-antimeridian bounds, longitude span no greater than 20 degrees, and latitude span no greater than 15 degrees; "limit" must be a positive integer no greater than 1000; "speciesLimit" must be a positive integer no greater than 100',
         statusCode: 400,
       },
       status: 400,

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 config({ quiet: true });
 
-const environmentSchema = z.object({
+const environmentObjectSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535),
   WEB_ORIGIN: z
     .url({ protocol: /^https?$/ })
@@ -73,7 +73,40 @@ const environmentSchema = z.object({
     .min(60)
     .max(604_800)
     .default(3_600),
+  API_RATE_LIMIT_WINDOW_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(3_600)
+    .default(60),
+  API_RATE_LIMIT_REQUESTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .default(120),
+  API_EXPENSIVE_RATE_LIMIT_REQUESTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .default(30),
 });
+
+const environmentSchema = environmentObjectSchema.superRefine(
+  (value, context) => {
+    if (
+      value.API_EXPENSIVE_RATE_LIMIT_REQUESTS > value.API_RATE_LIMIT_REQUESTS
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["API_EXPENSIVE_RATE_LIMIT_REQUESTS"],
+        message:
+          "API_EXPENSIVE_RATE_LIMIT_REQUESTS cannot exceed API_RATE_LIMIT_REQUESTS",
+      });
+    }
+  },
+);
 
 const parsedEnvironment = environmentSchema.safeParse(process.env);
 

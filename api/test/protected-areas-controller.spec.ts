@@ -42,6 +42,8 @@ describe("ProtectedAreasController", () => {
     ["repeated bbox", ["20,49,22,51"]],
     ["reversed longitude", "22,49,20,51"],
     ["reversed latitude", "20,51,22,49"],
+    ["excessive longitude span", "0,49,21,51"],
+    ["excessive latitude span", "20,0,22,16"],
     ["out-of-range longitude", "-181,49,22,51"],
     ["out-of-range latitude", "20,-91,22,51"],
   ])("rejects %s", async (_case, boundingBox) => {
@@ -60,7 +62,7 @@ describe("ProtectedAreasController", () => {
       response: {
         error: "Bad Request",
         message:
-          'Query parameter "bbox" must contain west,south,east,north coordinates with valid ranges and increasing bounds',
+          'Query parameter "bbox" must contain west,south,east,north coordinates with valid ranges, increasing non-antimeridian bounds, longitude span no greater than 20 degrees, and latitude span no greater than 15 degrees',
         statusCode: 400,
       },
       status: 400,
