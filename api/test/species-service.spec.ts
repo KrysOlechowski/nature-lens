@@ -314,7 +314,7 @@ describe("SpeciesService", () => {
     });
   });
 
-  it("synchronizes a mapped GBIF page alongside the primary iNaturalist page", async () => {
+  it("keeps in-flight refreshes separate by provider", async () => {
     const getINaturalistObservations = vi.fn().mockResolvedValue({
       totalResults: 1,
       page: 1,
@@ -459,6 +459,175 @@ describe("SpeciesService", () => {
     expect(replacePage).not.toHaveBeenCalled();
   });
 
+  it("coalesces concurrent misses for the same observation page", async () => {
+    const deferred = createDeferred<{
+      totalResults: number;
+      page: number;
+      perPage: number;
+      results: [];
+    }>();
+    let storedPage: StoredSpeciesObservationPage | null = null;
+    const getObservations = vi.fn().mockReturnValue(deferred.promise);
+    const findPage = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(storedPage));
+    const replacePage = vi
+      .fn()
+      .mockImplementation(
+        (
+          _speciesId: string,
+          _provider: string,
+          page: Omit<StoredSpeciesObservationPage, "lastSuccessfulSyncAt">,
+        ) => {
+          storedPage = {
+            ...page,
+            lastSuccessfulSyncAt: "2026-10-13T10:00:00.000Z",
+          };
+          return Promise.resolve(storedPage);
+        },
+      );
+    const service = createObservationService({
+      getObservations,
+      findPage,
+      replacePage,
+    });
+
+    const requests = Array.from({ length: 5 }, () =>
+      service.getObservations("42", { page: 2, perPage: 20 }),
+    );
+
+    await vi.waitFor(() => expect(getObservations).toHaveBeenCalledOnce());
+
+    deferred.resolve({ totalResults: 0, page: 2, perPage: 20, results: [] });
+
+    const results = await Promise.all(requests);
+    expect(results).toHaveLength(5);
+    expect(replacePage).toHaveBeenCalledOnce();
+    expect(
+      results.every((result) => result.metadata.freshness === "fresh"),
+    ).toBe(true);
+  });
+
+  it("coalesces concurrent refreshes for the same stale observation page", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-09T13:00:00.000Z"));
+    const deferred = createDeferred<{
+      totalResults: number;
+      page: number;
+      perPage: number;
+      results: [];
+    }>();
+    let storedPage = createStoredPage();
+    const getObservations = vi.fn().mockReturnValue(deferred.promise);
+    const findPage = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(storedPage));
+    const replacePage = vi
+      .fn()
+      .mockImplementation(
+        (
+          _speciesId: string,
+          _provider: string,
+          page: Omit<StoredSpeciesObservationPage, "lastSuccessfulSyncAt">,
+        ) => {
+          storedPage = {
+            ...page,
+            lastSuccessfulSyncAt: "2026-10-09T13:00:00.000Z",
+          };
+          return Promise.resolve(storedPage);
+        },
+      );
+    const service = createObservationService({
+      getObservations,
+      findPage,
+      replacePage,
+    });
+
+    const requests = Array.from({ length: 4 }, () =>
+      service.getObservations("42", { page: 2, perPage: 20 }),
+    );
+
+    await vi.waitFor(() => expect(getObservations).toHaveBeenCalledOnce());
+
+    deferred.resolve({ totalResults: 0, page: 2, perPage: 20, results: [] });
+
+    const results = await Promise.all(requests);
+    expect(replacePage).toHaveBeenCalledOnce();
+    expect(
+      results.every((result) => result.metadata.servedFrom === "provider-sync"),
+    ).toBe(true);
+  });
+
+  it("keeps in-flight refreshes separate by page and page size", async () => {
+    const storedPages = new Map<string, StoredSpeciesObservationPage>();
+    const getObservations = vi
+      .fn()
+      .mockImplementation(
+        (
+          _externalTaxonId: number,
+          pagination: { page: number; perPage: number },
+        ) =>
+          Promise.resolve({
+            totalResults: 0,
+            ...pagination,
+            results: [],
+          }),
+      );
+    const findPage = vi
+      .fn()
+      .mockImplementation(
+        (
+          _speciesId: string,
+          _provider: string,
+          pagination: { page: number; perPage: number },
+        ) =>
+          Promise.resolve(
+            storedPages.get(`${pagination.page}:${pagination.perPage}`) ?? null,
+          ),
+      );
+    const replacePage = vi
+      .fn()
+      .mockImplementation(
+        (
+          _speciesId: string,
+          _provider: string,
+          page: Omit<StoredSpeciesObservationPage, "lastSuccessfulSyncAt">,
+        ) => {
+          const storedPage = {
+            ...page,
+            lastSuccessfulSyncAt: "2026-10-13T10:00:00.000Z",
+          };
+          storedPages.set(`${page.page}:${page.perPage}`, storedPage);
+          return Promise.resolve(storedPage);
+        },
+      );
+    const service = createObservationService({
+      getObservations,
+      findPage,
+      replacePage,
+    });
+
+    await Promise.all([
+      service.getObservations("42", { page: 1, perPage: 20 }),
+      service.getObservations("42", { page: 2, perPage: 20 }),
+      service.getObservations("42", { page: 1, perPage: 50 }),
+    ]);
+
+    expect(getObservations).toHaveBeenCalledTimes(3);
+    expect(getObservations).toHaveBeenCalledWith(1696537, {
+      page: 1,
+      perPage: 20,
+    });
+    expect(getObservations).toHaveBeenCalledWith(1696537, {
+      page: 2,
+      perPage: 20,
+    });
+    expect(getObservations).toHaveBeenCalledWith(1696537, {
+      page: 1,
+      perPage: 50,
+    });
+  });
+
   it("refreshes a page at the freshness boundary", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-09T12:30:00.000Z"));
@@ -521,6 +690,70 @@ describe("SpeciesService", () => {
       },
     });
     expect(replacePage).not.toHaveBeenCalled();
+  });
+
+  it("shares stale-if-error and clears the failed refresh for a retry", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-09T13:00:00.000Z"));
+    const deferred = createDeferred<never>();
+    const providerError = new ProviderError("iNaturalist is unavailable", {
+      kind: "unavailable",
+      provider: "iNaturalist",
+    });
+    const refreshedPage = createStoredPage({
+      lastSuccessfulSyncAt: "2026-10-09T13:00:00.000Z",
+    });
+    const getObservations = vi
+      .fn()
+      .mockReturnValueOnce(deferred.promise)
+      .mockResolvedValueOnce({
+        totalResults: 1,
+        page: 2,
+        perPage: 20,
+        results: [],
+      });
+    const findPage = vi
+      .fn()
+      .mockResolvedValueOnce(createStoredPage())
+      .mockResolvedValueOnce(createStoredPage())
+      .mockResolvedValueOnce(createStoredPage())
+      .mockResolvedValueOnce(refreshedPage);
+    const replacePage = vi.fn().mockResolvedValue(refreshedPage);
+    const service = createObservationService({
+      getObservations,
+      findPage,
+      replacePage,
+    });
+
+    const firstRequest = service.getObservations("42", {
+      page: 2,
+      perPage: 20,
+    });
+    const secondRequest = service.getObservations("42", {
+      page: 2,
+      perPage: 20,
+    });
+
+    await vi.waitFor(() => expect(getObservations).toHaveBeenCalledOnce());
+
+    deferred.reject(providerError);
+
+    const staleResults = await Promise.all([firstRequest, secondRequest]);
+    expect(
+      staleResults.every(
+        (result) =>
+          result.metadata.servedFrom === "local-database" &&
+          result.metadata.freshness === "stale",
+      ),
+    ).toBe(true);
+
+    await expect(
+      service.getObservations("42", { page: 2, perPage: 20 }),
+    ).resolves.toMatchObject({
+      metadata: { servedFrom: "provider-sync", freshness: "fresh" },
+    });
+    expect(getObservations).toHaveBeenCalledTimes(2);
+    expect(replacePage).toHaveBeenCalledOnce();
   });
 
   it("propagates a provider failure when no persisted page exists", async () => {
@@ -719,8 +952,9 @@ function createObservationService({
 }): SpeciesService {
   const findProviderExternalId = vi
     .fn()
-    .mockResolvedValueOnce("1696537")
-    .mockResolvedValueOnce(null);
+    .mockImplementation((_speciesId: string, provider: string) =>
+      Promise.resolve(provider === "iNaturalist" ? "1696537" : null),
+    );
 
   return new SpeciesService(
     {} as INaturalistSpeciesSearchProvider,
@@ -739,4 +973,19 @@ function createObservationService({
     > as ObservationRepository,
     {} as SpeciesIdentityResolver,
   );
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let reject!: (reason?: unknown) => void;
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, reject, resolve };
 }

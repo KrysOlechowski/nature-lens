@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 8 · Multi-provider resilience and performance
 >
-> **Last completed step:** 50 · Add per-provider timeout and retry policies
+> **Last completed step:** 51 · Add provider-aware caching
 >
-> **Current step:** 51 · Add provider-aware caching
+> **Current step:** 52 · Add rate limiting and request protection
 >
-> **Next step:** 52 · Add rate limiting and request protection
+> **Next step:** 53 · Add structured logging and request correlation
 
 ## What currently works
 
@@ -53,7 +53,7 @@
 - The OpenStreetMap Nominatim adapter searches only Poland, validates provider responses at runtime, maps stable OSM objects into the Place contract, and returns center and reliable non-node bounding boxes such as the extent for Puszcza Niepołomicka.
 - Nominatim searches use an application-specific User-Agent, a bounded ten-minute cache checked before rate limiting, identical in-flight request coalescing, and one process-wide provider request per second.
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
-- Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior.
+- Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior, while concurrent misses and stale refreshes for the same provider page share the complete synchronization operation.
 - Local observations can be queried by a WGS84 bounding box and returned as a bounded GeoJSON `FeatureCollection<Point>` with explicit local-dataset and truncation metadata.
 - Unit tests cover transport, provider validation and mapping, normalization, application services, controllers, persistence behavior, and provider-error translation. Integration tests exercise repository migrations and PostgreSQL/PostGIS behavior in an ephemeral container.
 
@@ -77,7 +77,7 @@
 - External JSON enters the application as `unknown`, is runtime-validated at the provider boundary, and is reduced to only the fields required by current product behavior.
 - Provider adapters own endpoint details, query parameters, provider-specific validation, transport translation, and mapping into small integration types.
 - Open-Meteo `current` values are treated as model conditions rather than physical station measurements. Their Unix validity time is normalized by the backend to an unambiguous UTC `validAt` value.
-- Current weather uses a bounded 100-entry in-memory cache with a five-minute default freshness window configured by `WEATHER_FRESHNESS_WINDOW_SECONDS`. Expired entries are refreshed normally; provider failures are not hidden behind stale weather.
+- Current weather uses a bounded 100-entry in-memory cache with a five-minute default freshness window configured by `WEATHER_FRESHNESS_WINDOW_SECONDS`. Concurrent misses for the same coordinates share one provider request; expired entries are refreshed normally, and provider failures are not hidden behind stale weather.
 - GDOŚ protected areas are fetched live from the official WFS only while the map layer is enabled. One combined bbox request covers the supported surface layers and asks for 201 features so the API can return at most 200 with exact `truncated` semantics.
 - Protected-area geometry is simplified only for map presentation after provider validation and normalization. Tolerance follows the viewport span with fixed minimum and maximum bounds; identity and properties do not depend on geometry, no protected-area data is persisted, and `geometryPurpose: "display-simplified"` remains distinct from feature truncation.
 - Provider DI tokens are capability- and provider-specific. `SpeciesService` depends on observation capabilities rather than concrete adapters and synchronizes mapped iNaturalist and GBIF pages without moving provider logic into the application layer.
@@ -113,7 +113,7 @@
 - The public Nominatim endpoint is suitable only for low-traffic, submit-based MVP search: autocomplete is forbidden, aggregate traffic is capped at one request per second, availability has no SLA, and meaningful production scale requires another OSM-backed service or a self-hosted instance. Place-search UI must visibly attribute OpenStreetMap contributors.
 - WGS84 points use longitude-first coordinate order. Spatial reads support species-scoped and all-species bounding boxes, include boundaries, use deterministic recency ordering, and return at most 1,000 features.
 - Bounding-box reads never contact providers. Their `locally-synchronized` dataset scope must not be presented as complete provider coverage.
-- Observation page synchronization atomically upserts normalized observations and replaces exact-page membership. Fresh pages avoid the provider; stale pages may fall back to persisted data after a controlled provider failure.
+- Observation page synchronization atomically upserts normalized observations and replaces exact-page membership. Fresh pages avoid the provider; stale pages may fall back to persisted data after a controlled provider failure. Single-flight keys include species ID, provider, page, and page size, and remain active through provider fetch, transactional persistence, page metadata replacement, and the final read.
 - The observation freshness window defaults to one hour and is configurable with `OBSERVATION_FRESHNESS_WINDOW_SECONDS`.
 - External HTTP still supports only the idempotent JSON `GET` behavior required by implemented providers. iNaturalist, GBIF, Open-Meteo, and GDOŚ use at most two attempts for network errors, timeouts, and HTTP 502/503/504; Nominatim always uses one attempt, and 4xx responses including 429, HTTP 500, invalid JSON, and contract-validation failures are not retried.
 - Provider timeouts are validated, configurable per attempt, and default to 10 seconds for iNaturalist, GBIF, and Nominatim, 5 seconds for Open-Meteo, and 15 seconds for GDOŚ. With the current 250 ms maximum first backoff, the approximate maximum operation budgets are respectively 20.25, 20.25, 10, 10.25, and 30.25 seconds.
@@ -129,7 +129,7 @@
 - HTTP-level integration tests and end-to-end browser tests are not configured yet.
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
 - CI and production deployment are not configured.
-- Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider. Step 51 will consider provider-aware single-flight for concurrent cache misses and stale refreshes without unnecessarily refactoring Nominatim's existing local coalescing.
+- Observation and weather single-flight registries are process-local. Multiple API replicas could each refresh the same key concurrently; distributed coordination is not justified for the current single-process MVP.
 - Cross-provider grouping currently recognizes only the official GBIF-published iNaturalist dataset. Other provider relationships remain separate unless a future step adds another equally strong identity rule.
 - Paginated synchronization remains provider-page based. The public paginated response continues to describe the primary iNaturalist page, while the spatial read combines locally synchronized provider records.
 - Observations persisted before step 40 have nullable license and dataset provenance until a later provider synchronization supplies it.
@@ -172,15 +172,15 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 50.
-- `pnpm exec eslint api`: passed after step 50.
-- `pnpm --filter api typecheck`: passed after step 50.
-- `pnpm --filter api test`: passed all 271 API unit tests after step 50.
+- `pnpm format:check`: passed after step 51.
+- `pnpm exec eslint api`: passed after step 51.
+- `pnpm --filter api typecheck`: passed after step 51.
+- `pnpm --filter api test`: passed all 278 API unit tests after step 51.
 - `pnpm test:integration`: the 15-test suite includes the step 47 all-species spatial query, but could not run after step 47 because Testcontainers found no working container runtime; all 14 preceding PostgreSQL/PostGIS persistence tests passed after step 42.
-- The API production build passed after step 50.
+- The API production build passed after step 51.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
-- `git diff --check`: passed after step 50.
-- Step 50 Definition of Done is satisfied: each provider supplies an explicit timeout and attempt policy to the generic HTTP client, and tests verify that only selected transient failures are retried with bounded jittered backoff.
+- `git diff --check`: passed after step 51.
+- Step 51 Definition of Done is satisfied: repeated and concurrent requests reuse data-type-specific freshness caches, and concurrent observation and weather misses no longer scale into duplicate provider refreshes within one API process.

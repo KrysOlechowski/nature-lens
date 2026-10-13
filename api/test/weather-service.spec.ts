@@ -53,6 +53,59 @@ describe("WeatherService", () => {
     expect(provider.getCurrentWeather).toHaveBeenCalledOnce();
   });
 
+  it("coalesces concurrent cache misses for the same coordinates", async () => {
+    const deferred = createDeferred<CurrentWeather>();
+    const { provider, service } = createService();
+    vi.mocked(provider.getCurrentWeather).mockReturnValue(deferred.promise);
+
+    const requests = Array.from({ length: 5 }, () =>
+      service.getCurrentWeather(coordinates),
+    );
+
+    expect(provider.getCurrentWeather).toHaveBeenCalledOnce();
+
+    deferred.resolve(weather);
+
+    const results = await Promise.all(requests);
+    expect(results).toEqual(Array.from({ length: 5 }, () => weather));
+  });
+
+  it("keeps concurrent requests for different coordinates separate", async () => {
+    const { provider, service } = createService();
+    const otherCoordinates = { latitude: 50.0614, longitude: 19.9366 };
+
+    await Promise.all([
+      service.getCurrentWeather(coordinates),
+      service.getCurrentWeather(otherCoordinates),
+    ]);
+
+    expect(provider.getCurrentWeather).toHaveBeenCalledTimes(2);
+    expect(provider.getCurrentWeather).toHaveBeenCalledWith(coordinates);
+    expect(provider.getCurrentWeather).toHaveBeenCalledWith(otherCoordinates);
+  });
+
+  it("clears a failed in-flight request so the next request can retry", async () => {
+    const deferred = createDeferred<CurrentWeather>();
+    const { provider, service } = createService();
+    const providerFailure = new Error("Weather provider unavailable");
+    vi.mocked(provider.getCurrentWeather)
+      .mockReturnValueOnce(deferred.promise)
+      .mockResolvedValueOnce(weather);
+
+    const firstRequest = service.getCurrentWeather(coordinates);
+    const secondRequest = service.getCurrentWeather(coordinates);
+    const failedRequests = Promise.allSettled([firstRequest, secondRequest]);
+
+    deferred.reject(providerFailure);
+
+    await expect(failedRequests).resolves.toEqual([
+      { status: "rejected", reason: providerFailure },
+      { status: "rejected", reason: providerFailure },
+    ]);
+    await expect(service.getCurrentWeather(coordinates)).resolves.toBe(weather);
+    expect(provider.getCurrentWeather).toHaveBeenCalledTimes(2);
+  });
+
   it("refreshes weather after the freshness window expires", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-12T16:00:00.000Z"));
@@ -100,3 +153,18 @@ describe("WeatherService", () => {
     );
   });
 });
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let reject!: (reason?: unknown) => void;
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, reject, resolve };
+}

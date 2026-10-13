@@ -45,6 +45,10 @@ import { SpeciesRepository } from "./species.repository.js";
 @Injectable()
 export class SpeciesService {
   private readonly logger = new Logger(SpeciesService.name);
+  private readonly observationRefreshes = new Map<
+    string,
+    Promise<SpeciesObservationPage>
+  >();
 
   constructor(
     @Inject(INATURALIST_SPECIES_SEARCH_PROVIDER)
@@ -189,6 +193,43 @@ export class SpeciesService {
       return toObservationPage(storedPage, "local-database", "fresh");
     }
 
+    const refreshKey = createObservationRefreshKey(
+      speciesId,
+      provider.providerName,
+      pagination,
+    );
+    const inFlightRefresh = this.observationRefreshes.get(refreshKey);
+
+    if (inFlightRefresh) {
+      return inFlightRefresh;
+    }
+
+    const refresh = this.refreshObservationPage(
+      speciesId,
+      provider,
+      externalTaxonId,
+      pagination,
+      mapObservation,
+      storedPage,
+    ).finally(() => {
+      if (this.observationRefreshes.get(refreshKey) === refresh) {
+        this.observationRefreshes.delete(refreshKey);
+      }
+    });
+
+    this.observationRefreshes.set(refreshKey, refresh);
+
+    return refresh;
+  }
+
+  private async refreshObservationPage<TResult>(
+    speciesId: string,
+    provider: ObservationProvider<number, TResult>,
+    externalTaxonId: number,
+    pagination: ObservationPageRequest,
+    mapObservation: (observation: TResult) => SpeciesObservation,
+    storedPage: StoredSpeciesObservationPage | null,
+  ): Promise<SpeciesObservationPage> {
     let providerPage;
 
     try {
@@ -262,6 +303,14 @@ export class SpeciesService {
 
     return this.observationRepository.getSeasonality(speciesId);
   }
+}
+
+function createObservationRefreshKey(
+  speciesId: string,
+  provider: string,
+  { page, perPage }: ObservationPageRequest,
+): string {
+  return JSON.stringify([speciesId, provider, page, perPage]);
 }
 
 function parseExternalTaxonId(value: string, provider: string): number {

@@ -16,6 +16,7 @@ export const WEATHER_CACHE_MAX_ENTRIES = 100;
 @Injectable()
 export class WeatherService {
   private readonly cache = new Map<string, WeatherCacheEntry>();
+  private readonly inFlight = new Map<string, Promise<CurrentWeather>>();
 
   constructor(
     @Inject(WEATHER_PROVIDER)
@@ -34,11 +35,27 @@ export class WeatherService {
       return cachedWeather;
     }
 
-    const weather = await this.weatherProvider.getCurrentWeather(coordinates);
+    const inFlightRequest = this.inFlight.get(cacheKey);
 
-    this.writeCache(cacheKey, weather);
+    if (inFlightRequest) {
+      return inFlightRequest;
+    }
 
-    return weather;
+    const request = this.weatherProvider
+      .getCurrentWeather(coordinates)
+      .then((weather) => {
+        this.writeCache(cacheKey, weather);
+        return weather;
+      })
+      .finally(() => {
+        if (this.inFlight.get(cacheKey) === request) {
+          this.inFlight.delete(cacheKey);
+        }
+      });
+
+    this.inFlight.set(cacheKey, request);
+
+    return request;
   }
 
   private readCache(key: string): CurrentWeather | undefined {
