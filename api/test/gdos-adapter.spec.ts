@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ExternalHttpClient } from "../src/external-http/external-http-client.service.js";
+import { createExternalHttpPolicy } from "../src/external-http/external-http-policy.js";
 import type { ExternalHttpFetch } from "../src/external-http/external-http.tokens.js";
 import {
   GDOS_PROTECTED_AREA_FETCH_LIMIT,
@@ -12,18 +13,27 @@ const WFS_URL = "https://sdi.gdos.gov.pl/wfs";
 
 function createAdapter() {
   const request = vi.fn<ExternalHttpFetch>();
-  const externalHttpClient = new ExternalHttpClient(request, 5_000);
+  const policy = createExternalHttpPolicy({
+    timeoutMs: 5_000,
+    maxAttempts: 2,
+  });
+  const externalHttpClient = new ExternalHttpClient(
+    request,
+    vi.fn().mockResolvedValue(undefined),
+    () => 0.5,
+  );
   const getJson = vi.spyOn(externalHttpClient, "getJson");
 
   return {
-    adapter: new GdosAdapter(externalHttpClient, WFS_URL),
+    adapter: new GdosAdapter(externalHttpClient, policy, WFS_URL),
     getJson,
+    policy,
   };
 }
 
 describe("GdosAdapter", () => {
   it("requests the supported polygon layers for an explicit WGS84 bbox", async () => {
-    const { adapter, getJson } = createAdapter();
+    const { adapter, getJson, policy } = createAdapter();
     getJson.mockResolvedValue({ type: "FeatureCollection", features: [] });
 
     await adapter.getWithinBoundingBox({
@@ -35,6 +45,8 @@ describe("GdosAdapter", () => {
 
     expect(getJson).toHaveBeenCalledOnce();
     const request = getJson.mock.calls[0]?.[0];
+
+    expect(request?.policy).toBe(policy);
 
     expect(request?.provider).toBe("GDOŚ");
     expect(request?.url.origin).toBe("https://sdi.gdos.gov.pl");

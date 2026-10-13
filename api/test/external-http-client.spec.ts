@@ -2,7 +2,53 @@ import { Logger } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExternalHttpClient } from "../src/external-http/external-http-client.service.js";
 import { ExternalHttpError } from "../src/external-http/external-http.error.js";
-import type { ExternalHttpFetch } from "../src/external-http/external-http.tokens.js";
+import {
+  calculateExternalHttpOperationBudgetMs,
+  createExternalHttpPolicy,
+  type ExternalHttpPolicy,
+} from "../src/external-http/external-http-policy.js";
+import type {
+  ExternalHttpDelay,
+  ExternalHttpFetch,
+  ExternalHttpRandom,
+} from "../src/external-http/external-http.tokens.js";
+import { NOMINATIM_HTTP_MAX_ATTEMPTS } from "../src/nominatim/nominatim.constants.js";
+
+const DEFAULT_POLICY = createExternalHttpPolicy({
+  timeoutMs: 5_000,
+  maxAttempts: 2,
+});
+const TEST_URL = new URL(
+  "https://api.inaturalist.org/v1/taxa?q=secret-search-term",
+);
+
+function createClient(
+  request: ExternalHttpFetch,
+  {
+    delay = vi.fn<ExternalHttpDelay>().mockResolvedValue(undefined),
+    random = vi.fn<ExternalHttpRandom>().mockReturnValue(0.5),
+  }: {
+    delay?: ExternalHttpDelay;
+    random?: ExternalHttpRandom;
+  } = {},
+) {
+  return {
+    client: new ExternalHttpClient(request, delay, random),
+    delay,
+    random,
+  };
+}
+
+function getJson(
+  client: ExternalHttpClient,
+  policy: ExternalHttpPolicy = DEFAULT_POLICY,
+) {
+  return client.getJson({
+    policy,
+    provider: "iNaturalist",
+    url: TEST_URL,
+  });
+}
 
 describe("ExternalHttpClient", () => {
   beforeEach(() => {
@@ -12,28 +58,23 @@ describe("ExternalHttpClient", () => {
     vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
   });
 
-  it("fetches JSON with the controlled request settings", async () => {
-    const request = vi.fn<ExternalHttpFetch>().mockResolvedValue(
-      new Response(JSON.stringify({ results: [] }), {
-        headers: { "content-type": "application/json" },
-        status: 200,
-      }),
-    );
-    const client = new ExternalHttpClient(request, 5_000);
-    const url = new URL(
-      "https://api.inaturalist.org/v1/taxa?q=secret-search-term",
-    );
+  it("returns successful JSON without retrying", async () => {
+    const request = vi
+      .fn<ExternalHttpFetch>()
+      .mockResolvedValue(Response.json({ results: [] }));
+    const { client, delay } = createClient(request);
 
-    await expect(
-      client.getJson({ provider: "iNaturalist", url }),
-    ).resolves.toEqual({ results: [] });
-    expect(request).toHaveBeenCalledWith(url, {
+    await expect(getJson(client)).resolves.toEqual({ results: [] });
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(delay).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith(TEST_URL, {
       headers: { accept: "application/json" },
       signal: expect.any(AbortSignal),
     });
     expect(Logger.prototype.log).toHaveBeenCalledWith(
       expect.stringContaining(
-        "provider=iNaturalist endpoint=https://api.inaturalist.org/v1/taxa status=200",
+        "provider=iNaturalist endpoint=https://api.inaturalist.org/v1/taxa status=200 attempt=1/2",
       ),
     );
     expect(Logger.prototype.log).not.toHaveBeenCalledWith(
@@ -42,16 +83,17 @@ describe("ExternalHttpClient", () => {
   });
 
   it("sends an application-specific user agent when requested", async () => {
-    const request = vi.fn<ExternalHttpFetch>().mockResolvedValue(
-      new Response(JSON.stringify([]), {
-        headers: { "content-type": "application/json" },
-        status: 200,
-      }),
-    );
-    const client = new ExternalHttpClient(request, 5_000);
+    const request = vi
+      .fn<ExternalHttpFetch>()
+      .mockResolvedValue(Response.json([]));
+    const { client } = createClient(request);
     const url = new URL("https://nominatim.openstreetmap.org/search");
 
     await client.getJson({
+      policy: createExternalHttpPolicy({
+        timeoutMs: 5_000,
+        maxAttempts: 1,
+      }),
       provider: "OpenStreetMap Nominatim",
       url,
       userAgent: "  NatureLens/0.1  ",
@@ -68,10 +110,11 @@ describe("ExternalHttpClient", () => {
 
   it("rejects a blank user agent before making a request", async () => {
     const request = vi.fn<ExternalHttpFetch>();
-    const client = new ExternalHttpClient(request, 5_000);
+    const { client } = createClient(request);
 
     await expect(
       client.getJson({
+        policy: DEFAULT_POLICY,
         provider: "OpenStreetMap Nominatim",
         url: new URL("https://nominatim.openstreetmap.org/search"),
         userAgent: "   ",
@@ -82,42 +125,125 @@ describe("ExternalHttpClient", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("reports non-successful HTTP responses", async () => {
+  it("retries a network error and can recover", async () => {
     const request = vi
       .fn<ExternalHttpFetch>()
-      .mockResolvedValue(new Response(null, { status: 503 }));
-    const client = new ExternalHttpClient(request, 5_000);
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(Response.json({ results: [] }));
+    const { client, delay } = createClient(request);
 
-    await expect(
-      client.getJson({
-        provider: "iNaturalist",
-        url: new URL("https://api.inaturalist.org/v1/taxa"),
-      }),
-    ).rejects.toMatchObject<Partial<ExternalHttpError>>({
+    await expect(getJson(client)).resolves.toEqual({ results: [] });
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(delay).toHaveBeenCalledOnce();
+  });
+
+  it("retries a timeout and can recover", async () => {
+    const request = vi
+      .fn<ExternalHttpFetch>()
+      .mockRejectedValueOnce(new DOMException("Timed out", "TimeoutError"))
+      .mockResolvedValueOnce(Response.json({ results: [] }));
+    const { client, delay } = createClient(request);
+
+    await expect(getJson(client)).resolves.toEqual({ results: [] });
+
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(delay).toHaveBeenCalledOnce();
+  });
+
+  it.each([502, 503, 504])(
+    "retries the selected transient HTTP %i status",
+    async (status) => {
+      const request = vi
+        .fn<ExternalHttpFetch>()
+        .mockResolvedValueOnce(new Response(null, { status }))
+        .mockResolvedValueOnce(Response.json({ results: [] }));
+      const { client, delay } = createClient(request);
+
+      await expect(getJson(client)).resolves.toEqual({ results: [] });
+
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(delay).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([400, 404, 429, 500])("does not retry HTTP %i", async (status) => {
+    const request = vi
+      .fn<ExternalHttpFetch>()
+      .mockResolvedValue(new Response(null, { status }));
+    const { client, delay } = createClient(request);
+
+    await expect(getJson(client)).rejects.toMatchObject<
+      Partial<ExternalHttpError>
+    >({
       kind: "http",
       provider: "iNaturalist",
-      status: 503,
+      status,
     });
+    expect(request).toHaveBeenCalledOnce();
+    expect(delay).not.toHaveBeenCalled();
   });
 
-  it("distinguishes timeouts from other transport failures", async () => {
+  it("does not retry invalid JSON", async () => {
     const request = vi
       .fn<ExternalHttpFetch>()
-      .mockRejectedValue(new DOMException("Timed out", "TimeoutError"));
-    const client = new ExternalHttpClient(request, 5_000);
+      .mockResolvedValue(new Response("not-json", { status: 200 }));
+    const { client, delay } = createClient(request);
 
-    await expect(
-      client.getJson({
-        provider: "iNaturalist",
-        url: new URL("https://api.inaturalist.org/v1/taxa"),
-      }),
-    ).rejects.toMatchObject<Partial<ExternalHttpError>>({
-      kind: "timeout",
+    await expect(getJson(client)).rejects.toMatchObject<
+      Partial<ExternalHttpError>
+    >({
+      kind: "invalid-response",
       provider: "iNaturalist",
+      status: 200,
     });
+    expect(request).toHaveBeenCalledOnce();
+    expect(delay).not.toHaveBeenCalled();
   });
 
-  it("keeps the timeout active while reading the response body", async () => {
+  it("exhausts maxAttempts, including the first attempt", async () => {
+    const request = vi
+      .fn<ExternalHttpFetch>()
+      .mockRejectedValue(new TypeError("fetch failed"));
+    const policy = createExternalHttpPolicy({
+      timeoutMs: 1_000,
+      maxAttempts: 3,
+    });
+    const { client, delay } = createClient(request);
+
+    await expect(getJson(client, policy)).rejects.toMatchObject<
+      Partial<ExternalHttpError>
+    >({
+      kind: "network",
+      provider: "iNaturalist",
+    });
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(delay).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the timeout supplied by each provider policy for every attempt", async () => {
+    const signal = new AbortController().signal;
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(signal);
+    const request = vi
+      .fn<ExternalHttpFetch>()
+      .mockImplementation(async () => Response.json({ results: [] }));
+    const { client } = createClient(request);
+
+    await getJson(
+      client,
+      createExternalHttpPolicy({ timeoutMs: 2_500, maxAttempts: 1 }),
+    );
+    await client.getJson({
+      policy: createExternalHttpPolicy({ timeoutMs: 15_000, maxAttempts: 1 }),
+      provider: "GDOŚ",
+      url: new URL("https://sdi.gdos.gov.pl/wfs"),
+    });
+
+    expect(timeout).toHaveBeenNthCalledWith(1, 2_500);
+    expect(timeout).toHaveBeenNthCalledWith(2, 15_000);
+  });
+
+  it("keeps the per-attempt timeout active while reading the response body", async () => {
     const response = new Response(null, { status: 200 });
     const request = vi
       .fn<ExternalHttpFetch>()
@@ -140,13 +266,13 @@ describe("ExternalHttpClient", () => {
 
         return response;
       });
-    const client = new ExternalHttpClient(request, 1);
+    const { client } = createClient(request);
 
     await expect(
-      client.getJson({
-        provider: "iNaturalist",
-        url: new URL("https://api.inaturalist.org/v1/taxa"),
-      }),
+      getJson(
+        client,
+        createExternalHttpPolicy({ timeoutMs: 1, maxAttempts: 1 }),
+      ),
     ).rejects.toMatchObject<Partial<ExternalHttpError>>({
       kind: "timeout",
       provider: "iNaturalist",
@@ -154,38 +280,77 @@ describe("ExternalHttpClient", () => {
     });
   });
 
-  it("reports transport failures without exposing their implementation", async () => {
+  it("applies exponential backoff with bounded jitter without real waiting", async () => {
     const request = vi
       .fn<ExternalHttpFetch>()
       .mockRejectedValue(new TypeError("fetch failed"));
-    const client = new ExternalHttpClient(request, 5_000);
+    const delay = vi.fn<ExternalHttpDelay>().mockResolvedValue(undefined);
+    const random = vi
+      .fn<ExternalHttpRandom>()
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(1)
+      .mockReturnValueOnce(0.5);
+    const policy: ExternalHttpPolicy = {
+      timeoutMs: 1_000,
+      maxAttempts: 4,
+      retryableStatusCodes: [503],
+      backoff: {
+        initialDelayMs: 400,
+        maxDelayMs: 500,
+        jitterRatio: 0.25,
+      },
+    };
+    const { client } = createClient(request, { delay, random });
+
+    await expect(getJson(client, policy)).rejects.toBeInstanceOf(
+      ExternalHttpError,
+    );
+
+    expect(delay.mock.calls.map(([delayMs]) => delayMs)).toEqual([
+      400, 375, 438,
+    ]);
+    expect(delay.mock.calls.every(([delayMs]) => delayMs <= 500)).toBe(true);
+    expect(calculateExternalHttpOperationBudgetMs(policy)).toBe(5_400);
+  });
+
+  it("makes exactly one Nominatim attempt when its policy disables retries", async () => {
+    const request = vi
+      .fn<ExternalHttpFetch>()
+      .mockRejectedValue(new TypeError("fetch failed"));
+    const { client, delay } = createClient(request);
 
     await expect(
       client.getJson({
-        provider: "iNaturalist",
-        url: new URL("https://api.inaturalist.org/v1/taxa"),
+        policy: createExternalHttpPolicy({
+          timeoutMs: 10_000,
+          maxAttempts: NOMINATIM_HTTP_MAX_ATTEMPTS,
+        }),
+        provider: "OpenStreetMap Nominatim",
+        url: new URL("https://nominatim.openstreetmap.org/search"),
       }),
     ).rejects.toMatchObject<Partial<ExternalHttpError>>({
       kind: "network",
-      provider: "iNaturalist",
+      provider: "OpenStreetMap Nominatim",
     });
+    expect(request).toHaveBeenCalledOnce();
+    expect(delay).not.toHaveBeenCalled();
   });
 
-  it("keeps invalid JSON separate from provider contract validation", async () => {
-    const request = vi
-      .fn<ExternalHttpFetch>()
-      .mockResolvedValue(new Response("not-json", { status: 200 }));
-    const client = new ExternalHttpClient(request, 5_000);
+  it.each([0, -1, Number.NaN])(
+    "rejects invalid timeout %s before making a request",
+    async (timeoutMs) => {
+      const request = vi.fn<ExternalHttpFetch>();
+      const { client } = createClient(request);
 
-    await expect(
-      client.getJson({
-        provider: "iNaturalist",
-        url: new URL("https://api.inaturalist.org/v1/taxa"),
-      }),
-    ).rejects.toMatchObject<Partial<ExternalHttpError>>({
-      kind: "invalid-response",
-      provider: "iNaturalist",
-      status: 200,
-    });
-  });
+      await expect(
+        getJson(client, {
+          ...DEFAULT_POLICY,
+          timeoutMs,
+        }),
+      ).rejects.toThrowError(
+        new TypeError("External HTTP timeout must be a positive integer"),
+      );
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
 });

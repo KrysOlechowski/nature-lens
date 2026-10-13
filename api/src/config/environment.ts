@@ -18,12 +18,36 @@ const environmentSchema = z.object({
       "DATABASE_URL must use the postgres:// or postgresql:// protocol",
     ),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(20).default(5),
-  EXTERNAL_HTTP_TIMEOUT_MS: z.coerce
+  INATURALIST_HTTP_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .min(1)
     .max(60_000)
     .default(10_000),
+  GBIF_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(60_000)
+    .default(10_000),
+  NOMINATIM_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(60_000)
+    .default(10_000),
+  OPEN_METEO_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(60_000)
+    .default(5_000),
+  GDOS_HTTP_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(60_000)
+    .default(15_000),
   NOMINATIM_SEARCH_URL: z
     .url({ protocol: /^https?$/ })
     .default("https://nominatim.openstreetmap.org/search"),

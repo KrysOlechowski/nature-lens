@@ -9,6 +9,7 @@ import type {
 
 export const GBIF_OBSERVATION_PROVIDER = Symbol("GBIF_OBSERVATION_PROVIDER");
 export const GBIF_TAXON_MATCH_PROVIDER = Symbol("GBIF_TAXON_MATCH_PROVIDER");
+export const GBIF_HTTP_POLICY = Symbol("GBIF_HTTP_POLICY");
 
 export type GBIFObservationProvider = ObservationProvider<
   number,

@@ -6,11 +6,11 @@
 >
 > **Current phase:** Phase 8 · Multi-provider resilience and performance
 >
-> **Last completed step:** 49 · Add GDOŚ protected areas layer
+> **Last completed step:** 50 · Add per-provider timeout and retry policies
 >
-> **Current step:** 50 · Add per-provider timeout and retry policies
+> **Current step:** 51 · Add provider-aware caching
 >
-> **Next step:** 51 · Add provider-aware caching
+> **Next step:** 52 · Add rate limiting and request protection
 
 ## What currently works
 
@@ -35,7 +35,7 @@
 - The API exposes a provider-neutral `GET /api/observations` viewport query across all locally synchronized species, with independent bounded limits for map features and the ranked species list.
 - The API validates server-only configuration, creates one shared PostgreSQL pool, verifies the database connection before startup, and closes the pool during application shutdown.
 - Browser map requests use credential-free `GET` calls allowed only from the exact configured `WEB_ORIGIN`.
-- A controlled backend HTTP client provides JSON `GET`, configurable timeouts, provider-aware logging, and categorized transport failures.
+- A provider-neutral backend HTTP client provides JSON `GET`, per-provider per-attempt timeouts, bounded retry with jitter, attempt-aware logging, and categorized transport failures.
 - The iNaturalist adapter searches active species and retrieves explicit observation pages restricted to Poland. Responses are runtime-validated before being mapped into small integration types.
 - The GBIF adapter retrieves paginated occurrence records restricted to Poland, validates only the provider fields required by the application, and maps them into the existing provider-independent observation shape.
 - Species observation synchronization also fetches GBIF pages when the species has a resolved GBIF mapping; a controlled GBIF provider failure does not remove the available iNaturalist result.
@@ -115,7 +115,8 @@
 - Bounding-box reads never contact providers. Their `locally-synchronized` dataset scope must not be presented as complete provider coverage.
 - Observation page synchronization atomically upserts normalized observations and replaces exact-page membership. Fresh pages avoid the provider; stale pages may fall back to persisted data after a controlled provider failure.
 - The observation freshness window defaults to one hour and is configurable with `OBSERVATION_FRESHNESS_WINDOW_SECONDS`.
-- External HTTP currently supports only the JSON `GET` behavior required by implemented providers. Retries remain deferred until provider-specific evidence justifies them.
+- External HTTP still supports only the idempotent JSON `GET` behavior required by implemented providers. iNaturalist, GBIF, Open-Meteo, and GDOŚ use at most two attempts for network errors, timeouts, and HTTP 502/503/504; Nominatim always uses one attempt, and 4xx responses including 429, HTTP 500, invalid JSON, and contract-validation failures are not retried.
+- Provider timeouts are validated, configurable per attempt, and default to 10 seconds for iNaturalist, GBIF, and Nominatim, 5 seconds for Open-Meteo, and 15 seconds for GDOŚ. With the current 250 ms maximum first backoff, the approximate maximum operation budgets are respectively 20.25, 20.25, 10, 10.25, and 30.25 seconds.
 - MapLibre remains isolated in a Client Component. Provider data is flattened to safe scalar properties, rendered features are validated again, and popup content is built with DOM APIs rather than HTML interpolation.
 - Initial observation retry uses `router.refresh()` from a small Client Component. Viewport retry remains local to the map and preserves the last successful dataset.
 - Place mapping uses a dedicated Client Component rather than extending the species map. Reliable provider extents set the initial view with `fitBounds`; places without one use their representative center and a bounded fallback zoom, while observation selection always follows the actual viewport.
@@ -128,7 +129,7 @@
 - HTTP-level integration tests and end-to-end browser tests are not configured yet.
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
 - CI and production deployment are not configured.
-- Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider.
+- Concurrent requests for the same missing or stale observation page are not coalesced and may each call the provider. Step 51 will consider provider-aware single-flight for concurrent cache misses and stale refreshes without unnecessarily refactoring Nominatim's existing local coalescing.
 - Cross-provider grouping currently recognizes only the official GBIF-published iNaturalist dataset. Other provider relationships remain separate unless a future step adds another equally strong identity rule.
 - Paginated synchronization remains provider-page based. The public paginated response continues to describe the primary iNaturalist page, while the spatial read combines locally synchronized provider records.
 - Observations persisted before step 40 have nullable license and dataset provenance until a later provider synchronization supplies it.
@@ -171,15 +172,15 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 49.
-- `pnpm lint`: passed after step 49.
-- `pnpm typecheck`: passed for the web and API applications after step 49.
-- `pnpm --filter api test`: passed all 258 API unit tests after step 49.
+- `pnpm format:check`: passed after step 50.
+- `pnpm exec eslint api`: passed after step 50.
+- `pnpm --filter api typecheck`: passed after step 50.
+- `pnpm --filter api test`: passed all 271 API unit tests after step 50.
 - `pnpm test:integration`: the 15-test suite includes the step 47 all-species spatial query, but could not run after step 47 because Testcontainers found no working container runtime; all 14 preceding PostgreSQL/PostGIS persistence tests passed after step 42.
-- The API production build passed after step 49.
+- The API production build passed after step 50.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
-- `git diff --check`: passed after step 49.
-- Step 49 Definition of Done is satisfied: protected areas are exposed through a provider-neutral API and available as a separately toggleable, attributed MapLibre layer with explicit incompleteness and display-geometry disclosures.
+- `git diff --check`: passed after step 50.
+- Step 50 Definition of Done is satisfied: each provider supplies an explicit timeout and attempt policy to the generic HTTP client, and tests verify that only selected transient failures are retried with bounded jittered backoff.

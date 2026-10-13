@@ -1,9 +1,9 @@
 import { Module } from "@nestjs/common";
-import { environment } from "../config/environment.js";
 import { ExternalHttpClient } from "./external-http-client.service.js";
 import {
+  EXTERNAL_HTTP_DELAY,
   EXTERNAL_HTTP_FETCH,
-  EXTERNAL_HTTP_TIMEOUT_MS,
+  EXTERNAL_HTTP_RANDOM,
 } from "./external-http.tokens.js";
 
 @Module({
@@ -13,8 +13,13 @@ import {
       useValue: globalThis.fetch,
     },
     {
-      provide: EXTERNAL_HTTP_TIMEOUT_MS,
-      useValue: environment.EXTERNAL_HTTP_TIMEOUT_MS,
+      provide: EXTERNAL_HTTP_DELAY,
+      useValue: (delayMs: number) =>
+        new Promise<void>((resolve) => setTimeout(resolve, delayMs)),
+    },
+    {
+      provide: EXTERNAL_HTTP_RANDOM,
+      useValue: Math.random,
     },
     ExternalHttpClient,
   ],

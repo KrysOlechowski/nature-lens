@@ -13,6 +13,7 @@ export const INATURALIST_SPECIES_SEARCH_PROVIDER = Symbol(
 export const INATURALIST_OBSERVATION_PROVIDER = Symbol(
   "INATURALIST_OBSERVATION_PROVIDER",
 );
+export const INATURALIST_HTTP_POLICY = Symbol("INATURALIST_HTTP_POLICY");
 
 export type INaturalistSpeciesSearchProvider =
   SpeciesSearchProvider<INaturalistSpeciesSearchResult>;

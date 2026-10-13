@@ -1,12 +1,17 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ExternalHttpError } from "./external-http.error.js";
+import type { ExternalHttpPolicy } from "./external-http-policy.js";
 import {
+  EXTERNAL_HTTP_DELAY,
   EXTERNAL_HTTP_FETCH,
-  EXTERNAL_HTTP_TIMEOUT_MS,
+  EXTERNAL_HTTP_RANDOM,
+  type ExternalHttpDelay,
   type ExternalHttpFetch,
+  type ExternalHttpRandom,
 } from "./external-http.tokens.js";
 
 export interface ExternalHttpRequest {
+  policy: ExternalHttpPolicy;
   provider: string;
   url: URL;
   userAgent?: string;
@@ -19,11 +24,14 @@ export class ExternalHttpClient {
   constructor(
     @Inject(EXTERNAL_HTTP_FETCH)
     private readonly request: ExternalHttpFetch,
-    @Inject(EXTERNAL_HTTP_TIMEOUT_MS)
-    private readonly timeoutMs: number,
+    @Inject(EXTERNAL_HTTP_DELAY)
+    private readonly delay: ExternalHttpDelay,
+    @Inject(EXTERNAL_HTTP_RANDOM)
+    private readonly random: ExternalHttpRandom,
   ) {}
 
   async getJson({
+    policy,
     provider,
     url,
     userAgent,
@@ -40,13 +48,62 @@ export class ExternalHttpClient {
       throw new TypeError("External HTTP user agent cannot be blank");
     }
 
+    assertExternalHttpPolicy(policy);
+
     const endpoint = `${url.origin}${url.pathname}`;
+    for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
+      try {
+        return await this.performAttempt({
+          endpoint,
+          normalizedProvider,
+          normalizedUserAgent,
+          policy,
+          url,
+          attempt,
+        });
+      } catch (error) {
+        if (
+          !(error instanceof ExternalHttpError) ||
+          attempt >= policy.maxAttempts ||
+          !isRetryable(error, policy)
+        ) {
+          throw error;
+        }
+
+        const delayMs = calculateBackoffDelay(policy, attempt, this.random());
+
+        this.logger.warn(
+          `External HTTP GET retry scheduled provider=${normalizedProvider} endpoint=${endpoint} attempt=${attempt + 1}/${policy.maxAttempts} delayMs=${delayMs} previousKind=${error.kind}${error.status === undefined ? "" : ` previousStatus=${error.status}`}`,
+        );
+
+        await this.delay(delayMs);
+      }
+    }
+
+    throw new Error("External HTTP attempts exhausted unexpectedly");
+  }
+
+  private async performAttempt({
+    endpoint,
+    normalizedProvider,
+    normalizedUserAgent,
+    policy,
+    url,
+    attempt,
+  }: {
+    endpoint: string;
+    normalizedProvider: string;
+    normalizedUserAgent?: string;
+    policy: ExternalHttpPolicy;
+    url: URL;
+    attempt: number;
+  }): Promise<unknown> {
     const startedAt = performance.now();
-    const signal = AbortSignal.timeout(this.timeoutMs);
+    const signal = AbortSignal.timeout(policy.timeoutMs);
     let response: Response;
 
     this.logger.debug(
-      `External HTTP GET started provider=${normalizedProvider} endpoint=${endpoint}`,
+      `External HTTP GET started provider=${normalizedProvider} endpoint=${endpoint} attempt=${attempt}/${policy.maxAttempts} timeoutMs=${policy.timeoutMs}`,
     );
 
     try {
@@ -63,7 +120,7 @@ export class ExternalHttpClient {
       const durationMs = elapsedMilliseconds(startedAt);
 
       this.logger.warn(
-        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=${kind} durationMs=${durationMs}`,
+        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=${kind} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
       );
 
       throw new ExternalHttpError(
@@ -78,7 +135,7 @@ export class ExternalHttpClient {
       const durationMs = elapsedMilliseconds(startedAt);
 
       this.logger.warn(
-        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=http status=${response.status} durationMs=${durationMs}`,
+        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=http status=${response.status} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
       );
 
       throw new ExternalHttpError(
@@ -96,7 +153,7 @@ export class ExternalHttpClient {
       const durationMs = elapsedMilliseconds(startedAt);
 
       this.logger.log(
-        `External HTTP GET completed provider=${normalizedProvider} endpoint=${endpoint} status=${response.status} durationMs=${durationMs}`,
+        `External HTTP GET completed provider=${normalizedProvider} endpoint=${endpoint} status=${response.status} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
       );
 
       return body;
@@ -108,7 +165,7 @@ export class ExternalHttpClient {
       const durationMs = elapsedMilliseconds(startedAt);
 
       this.logger.warn(
-        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=${kind} status=${response.status} durationMs=${durationMs}`,
+        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=${kind} status=${response.status} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
       );
 
       throw new ExternalHttpError(
@@ -124,6 +181,65 @@ export class ExternalHttpClient {
       );
     }
   }
+}
+
+function assertExternalHttpPolicy(
+  policy: ExternalHttpPolicy,
+): asserts policy is ExternalHttpPolicy {
+  if (!Number.isInteger(policy.timeoutMs) || policy.timeoutMs <= 0) {
+    throw new TypeError("External HTTP timeout must be a positive integer");
+  }
+
+  if (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts <= 0) {
+    throw new TypeError("External HTTP maxAttempts must be a positive integer");
+  }
+
+  if (
+    !Number.isInteger(policy.backoff.initialDelayMs) ||
+    policy.backoff.initialDelayMs < 0 ||
+    !Number.isInteger(policy.backoff.maxDelayMs) ||
+    policy.backoff.maxDelayMs < policy.backoff.initialDelayMs
+  ) {
+    throw new TypeError("External HTTP backoff bounds are invalid");
+  }
+
+  if (
+    !Number.isFinite(policy.backoff.jitterRatio) ||
+    policy.backoff.jitterRatio < 0 ||
+    policy.backoff.jitterRatio > 1
+  ) {
+    throw new TypeError("External HTTP jitter ratio must be between 0 and 1");
+  }
+}
+
+function isRetryable(
+  error: ExternalHttpError,
+  policy: ExternalHttpPolicy,
+): boolean {
+  if (error.kind === "network" || error.kind === "timeout") {
+    return true;
+  }
+
+  return (
+    error.kind === "http" &&
+    error.status !== undefined &&
+    policy.retryableStatusCodes.includes(error.status)
+  );
+}
+
+function calculateBackoffDelay(
+  policy: ExternalHttpPolicy,
+  failedAttempt: number,
+  random: number,
+): number {
+  const exponentialDelay = Math.min(
+    policy.backoff.maxDelayMs,
+    policy.backoff.initialDelayMs * 2 ** (failedAttempt - 1),
+  );
+  const boundedRandom = Math.min(1, Math.max(0, random));
+  const jitterMultiplier = 1 - policy.backoff.jitterRatio * boundedRandom;
+
+  return Math.round(exponentialDelay * jitterMultiplier);
 }
 
 function isTimeoutError(error: unknown): boolean {

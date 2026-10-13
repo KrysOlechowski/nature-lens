@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
+import type { ExternalHttpPolicy } from "../external-http/external-http-policy.js";
 import type { ProtectedAreasProvider } from "../protected-areas/protected-areas-provider.contract.js";
 import type {
   ProtectedAreaBoundingBox,
@@ -12,7 +13,7 @@ import {
 } from "./gdos.constants.js";
 import { throwGdosProviderError } from "./gdos-error.mapper.js";
 import { parseGdosProtectedAreasResponse } from "./gdos-response.schema.js";
-import { GDOS_WFS_URL } from "./gdos.tokens.js";
+import { GDOS_HTTP_POLICY, GDOS_WFS_URL } from "./gdos.tokens.js";
 
 @Injectable()
 export class GdosAdapter implements ProtectedAreasProvider {
@@ -20,6 +21,8 @@ export class GdosAdapter implements ProtectedAreasProvider {
 
   constructor(
     private readonly externalHttpClient: ExternalHttpClient,
+    @Inject(GDOS_HTTP_POLICY)
+    private readonly httpPolicy: ExternalHttpPolicy,
     @Inject(GDOS_WFS_URL) private readonly wfsUrl: string,
   ) {}
 
@@ -44,6 +47,7 @@ export class GdosAdapter implements ProtectedAreasProvider {
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: GDOS_PROVIDER,
         url,
       });

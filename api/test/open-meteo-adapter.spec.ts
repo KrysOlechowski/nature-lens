@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ExternalHttpClient } from "../src/external-http/external-http-client.service.js";
+import { createExternalHttpPolicy } from "../src/external-http/external-http-policy.js";
 import type { ExternalHttpFetch } from "../src/external-http/external-http.tokens.js";
 import { OpenMeteoAdapter } from "../src/open-meteo/open-meteo.adapter.js";
 import { ProviderError } from "../src/provider-errors/provider.error.js";
@@ -24,24 +25,35 @@ const currentResponse = {
 
 function createAdapter() {
   const request = vi.fn<ExternalHttpFetch>();
-  const externalHttpClient = new ExternalHttpClient(request, 5_000);
+  const policy = createExternalHttpPolicy({
+    timeoutMs: 5_000,
+    maxAttempts: 2,
+  });
+  const externalHttpClient = new ExternalHttpClient(
+    request,
+    vi.fn().mockResolvedValue(undefined),
+    () => 0.5,
+  );
   const getJson = vi.spyOn(externalHttpClient, "getJson");
 
   return {
-    adapter: new OpenMeteoAdapter(externalHttpClient, FORECAST_URL),
+    adapter: new OpenMeteoAdapter(externalHttpClient, policy, FORECAST_URL),
     getJson,
+    policy,
   };
 }
 
 describe("OpenMeteoAdapter", () => {
   it("requests explicit metric current-condition variables", async () => {
-    const { adapter, getJson } = createAdapter();
+    const { adapter, getJson, policy } = createAdapter();
     getJson.mockResolvedValue(currentResponse);
 
     await adapter.getCurrentWeather({ latitude: 52.2297, longitude: 21.0122 });
 
     expect(getJson).toHaveBeenCalledOnce();
     const request = getJson.mock.calls[0]?.[0];
+
+    expect(request?.policy).toBe(policy);
 
     expect(request?.provider).toBe("Open-Meteo");
     expect(request?.url.origin).toBe("https://api.open-meteo.com");

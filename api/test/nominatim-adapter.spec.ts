@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExternalHttpClient } from "../src/external-http/external-http-client.service.js";
+import { createExternalHttpPolicy } from "../src/external-http/external-http-policy.js";
 import type { ExternalHttpFetch } from "../src/external-http/external-http.tokens.js";
 import { NominatimAdapter } from "../src/nominatim/nominatim.adapter.js";
+import { NOMINATIM_HTTP_MAX_ATTEMPTS } from "../src/nominatim/nominatim.constants.js";
 import { ProviderError } from "../src/provider-errors/provider.error.js";
 
 const SEARCH_URL = "https://nominatim.openstreetmap.org/search";
@@ -10,17 +12,27 @@ const USER_AGENT = "NatureLens/0.1";
 
 function createAdapter() {
   const request = vi.fn<ExternalHttpFetch>();
-  const externalHttpClient = new ExternalHttpClient(request, 5_000);
+  const policy = createExternalHttpPolicy({
+    timeoutMs: 5_000,
+    maxAttempts: NOMINATIM_HTTP_MAX_ATTEMPTS,
+  });
+  const externalHttpClient = new ExternalHttpClient(
+    request,
+    vi.fn().mockResolvedValue(undefined),
+    () => 0.5,
+  );
   const getJson = vi.spyOn(externalHttpClient, "getJson");
 
   return {
     adapter: new NominatimAdapter(
       externalHttpClient,
+      policy,
       SEARCH_URL,
       LOOKUP_URL,
       USER_AGENT,
     ),
     getJson,
+    policy,
   };
 }
 
@@ -55,7 +67,7 @@ describe("NominatimAdapter", () => {
   });
 
   it("searches only Poland with the policy-compliant request settings", async () => {
-    const { adapter, getJson } = createAdapter();
+    const { adapter, getJson, policy } = createAdapter();
     getJson.mockResolvedValue([]);
 
     await expect(
@@ -66,6 +78,8 @@ describe("NominatimAdapter", () => {
     const request = getJson.mock.calls[0]?.[0];
 
     expect(request?.provider).toBe("OpenStreetMap Nominatim");
+    expect(request?.policy).toBe(policy);
+    expect(request?.policy.maxAttempts).toBe(1);
     expect(request?.userAgent).toBe(USER_AGENT);
     expect(request?.url.origin).toBe("https://nominatim.openstreetmap.org");
     expect(request?.url.pathname).toBe("/search");

@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
+import type { ExternalHttpPolicy } from "../external-http/external-http-policy.js";
 import type { PlaceLookupProvider } from "../places/place-lookup-provider.contract.js";
 import type { PlaceSearchProvider } from "../places/place-search-provider.contract.js";
 import type { Place, PlaceType } from "../places/place.model.js";
@@ -24,6 +25,7 @@ import {
 } from "./nominatim-response.schema.js";
 import {
   NOMINATIM_LOOKUP_URL,
+  NOMINATIM_HTTP_POLICY,
   NOMINATIM_SEARCH_URL,
   NOMINATIM_USER_AGENT,
 } from "./nominatim.tokens.js";
@@ -53,6 +55,8 @@ export class NominatimAdapter
 
   constructor(
     private readonly externalHttpClient: ExternalHttpClient,
+    @Inject(NOMINATIM_HTTP_POLICY)
+    private readonly httpPolicy: ExternalHttpPolicy,
     @Inject(NOMINATIM_SEARCH_URL) private readonly searchUrl: string,
     @Inject(NOMINATIM_LOOKUP_URL) private readonly lookupUrl: string,
     @Inject(NOMINATIM_USER_AGENT) private readonly userAgent: string,
@@ -139,6 +143,7 @@ export class NominatimAdapter
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: NOMINATIM_PROVIDER,
         url,
         userAgent: this.userAgent,
@@ -170,6 +175,7 @@ export class NominatimAdapter
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: NOMINATIM_PROVIDER,
         url,
         userAgent: this.userAgent,

@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
+import type { ExternalHttpPolicy } from "../external-http/external-http-policy.js";
 import type { WeatherProvider } from "../weather/weather-provider.contract.js";
 import type {
   CurrentWeather,
@@ -8,7 +9,10 @@ import type {
 import { OPEN_METEO_PROVIDER } from "./open-meteo.constants.js";
 import { throwOpenMeteoProviderError } from "./open-meteo-error.mapper.js";
 import { parseOpenMeteoCurrentWeatherResponse } from "./open-meteo-response.schema.js";
-import { OPEN_METEO_FORECAST_URL } from "./open-meteo.tokens.js";
+import {
+  OPEN_METEO_FORECAST_URL,
+  OPEN_METEO_HTTP_POLICY,
+} from "./open-meteo.tokens.js";
 
 @Injectable()
 export class OpenMeteoAdapter implements WeatherProvider {
@@ -16,6 +20,8 @@ export class OpenMeteoAdapter implements WeatherProvider {
 
   constructor(
     private readonly externalHttpClient: ExternalHttpClient,
+    @Inject(OPEN_METEO_HTTP_POLICY)
+    private readonly httpPolicy: ExternalHttpPolicy,
     @Inject(OPEN_METEO_FORECAST_URL) private readonly forecastUrl: string,
   ) {}
 
@@ -37,6 +43,7 @@ export class OpenMeteoAdapter implements WeatherProvider {
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: OPEN_METEO_PROVIDER,
         url,
       });

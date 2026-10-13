@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type {
   ObservationPage,
   ObservationPageRequest,
@@ -7,12 +7,14 @@ import type {
   TaxonMatchRequest,
 } from "../biodiversity/biodiversity-provider.contract.js";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
+import type { ExternalHttpPolicy } from "../external-http/external-http-policy.js";
 import {
   GBIF_BACKBONE_CHECKLIST_KEY,
   GBIF_PROVIDER,
   INATURALIST_GBIF_DATASET_KEY,
 } from "./gbif.constants.js";
 import { throwGBIFProviderError } from "./gbif-error.mapper.js";
+import { GBIF_HTTP_POLICY } from "./gbif.tokens.js";
 import {
   parseGBIFOccurrencesResponse,
   parseGBIFTaxonMatchResponse,
@@ -84,7 +86,11 @@ export class GBIFAdapter
 {
   readonly providerName = GBIF_PROVIDER;
 
-  constructor(private readonly externalHttpClient: ExternalHttpClient) {}
+  constructor(
+    private readonly externalHttpClient: ExternalHttpClient,
+    @Inject(GBIF_HTTP_POLICY)
+    private readonly httpPolicy: ExternalHttpPolicy,
+  ) {}
 
   async getObservations(
     taxonKey: number,
@@ -120,6 +126,7 @@ export class GBIFAdapter
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: GBIF_PROVIDER,
         url,
       });
@@ -172,6 +179,7 @@ export class GBIFAdapter
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: GBIF_PROVIDER,
         url,
       });

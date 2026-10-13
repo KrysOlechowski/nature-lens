@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type {
   ObservationPage,
   ObservationPageRequest,
@@ -6,11 +6,13 @@ import type {
   SpeciesSearchProvider,
 } from "../biodiversity/biodiversity-provider.contract.js";
 import { ExternalHttpClient } from "../external-http/external-http-client.service.js";
+import type { ExternalHttpPolicy } from "../external-http/external-http-policy.js";
 import {
   parseINaturalistObservationsResponse,
   parseINaturalistTaxaResponse,
 } from "./inaturalist-response.schema.js";
 import { throwINaturalistProviderError } from "./inaturalist-error.mapper.js";
+import { INATURALIST_HTTP_POLICY } from "./inaturalist.tokens.js";
 
 const INATURALIST_PROVIDER = "iNaturalist";
 const INATURALIST_TAXA_URL = "https://api.inaturalist.org/v1/taxa";
@@ -52,7 +54,11 @@ export class INaturalistAdapter
 {
   readonly providerName = INATURALIST_PROVIDER;
 
-  constructor(private readonly externalHttpClient: ExternalHttpClient) {}
+  constructor(
+    private readonly externalHttpClient: ExternalHttpClient,
+    @Inject(INATURALIST_HTTP_POLICY)
+    private readonly httpPolicy: ExternalHttpPolicy,
+  ) {}
 
   async searchSpecies(
     query: string,
@@ -72,6 +78,7 @@ export class INaturalistAdapter
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: INATURALIST_PROVIDER,
         url,
       });
@@ -112,6 +119,7 @@ export class INaturalistAdapter
 
     try {
       const response = await this.externalHttpClient.getJson({
+        policy: this.httpPolicy,
         provider: INATURALIST_PROVIDER,
         url,
       });
