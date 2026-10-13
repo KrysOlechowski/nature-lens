@@ -25,7 +25,7 @@ interface PlacePageProps {
 
 export default async function PlacePage({ params }: PlacePageProps) {
   const { id } = await params;
-  const response = await getPlace(id);
+  const response = await getPlace(decodeURIComponent(id));
 
   if (response.status === "not-found") {
     notFound();
