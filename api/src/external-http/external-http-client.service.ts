@@ -50,7 +50,7 @@ export class ExternalHttpClient {
 
     assertExternalHttpPolicy(policy);
 
-    const endpoint = `${url.origin}${url.pathname}`;
+    const endpoint = url.pathname;
     for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
       try {
         return await this.performAttempt({
@@ -72,9 +72,17 @@ export class ExternalHttpClient {
 
         const delayMs = calculateBackoffDelay(policy, attempt, this.random());
 
-        this.logger.warn(
-          `External HTTP GET retry scheduled provider=${normalizedProvider} endpoint=${endpoint} attempt=${attempt + 1}/${policy.maxAttempts} delayMs=${delayMs} previousKind=${error.kind}${error.status === undefined ? "" : ` previousStatus=${error.status}`}`,
-        );
+        this.logger.warn("External HTTP GET retry scheduled", {
+          event: "provider.http.retry-scheduled",
+          provider: normalizedProvider,
+          endpoint,
+          attempt,
+          nextAttempt: attempt + 1,
+          maxAttempts: policy.maxAttempts,
+          delayMs,
+          errorKind: error.kind,
+          ...(error.status === undefined ? {} : { status: error.status }),
+        });
 
         await this.delay(delayMs);
       }
@@ -102,9 +110,14 @@ export class ExternalHttpClient {
     const signal = AbortSignal.timeout(policy.timeoutMs);
     let response: Response;
 
-    this.logger.debug(
-      `External HTTP GET started provider=${normalizedProvider} endpoint=${endpoint} attempt=${attempt}/${policy.maxAttempts} timeoutMs=${policy.timeoutMs}`,
-    );
+    this.logger.debug("External HTTP GET started", {
+      event: "provider.http.started",
+      provider: normalizedProvider,
+      endpoint,
+      attempt,
+      maxAttempts: policy.maxAttempts,
+      timeoutMs: policy.timeoutMs,
+    });
 
     try {
       response = await this.request(url, {
@@ -119,9 +132,15 @@ export class ExternalHttpClient {
         signal.aborted || isTimeoutError(cause) ? "timeout" : "network";
       const durationMs = elapsedMilliseconds(startedAt);
 
-      this.logger.warn(
-        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=${kind} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
-      );
+      this.logger.warn("External HTTP GET failed", {
+        event: "provider.http.failed",
+        provider: normalizedProvider,
+        endpoint,
+        attempt,
+        maxAttempts: policy.maxAttempts,
+        latencyMs: durationMs,
+        errorKind: kind,
+      });
 
       throw new ExternalHttpError(
         kind === "timeout"
@@ -134,9 +153,16 @@ export class ExternalHttpClient {
     if (!response.ok) {
       const durationMs = elapsedMilliseconds(startedAt);
 
-      this.logger.warn(
-        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=http status=${response.status} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
-      );
+      this.logger.warn("External HTTP GET failed", {
+        event: "provider.http.failed",
+        provider: normalizedProvider,
+        endpoint,
+        attempt,
+        maxAttempts: policy.maxAttempts,
+        status: response.status,
+        latencyMs: durationMs,
+        errorKind: "http",
+      });
 
       throw new ExternalHttpError(
         `External request to ${normalizedProvider} returned HTTP ${response.status}`,
@@ -152,9 +178,15 @@ export class ExternalHttpClient {
       const body: unknown = await response.json();
       const durationMs = elapsedMilliseconds(startedAt);
 
-      this.logger.log(
-        `External HTTP GET completed provider=${normalizedProvider} endpoint=${endpoint} status=${response.status} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
-      );
+      this.logger.log("External HTTP GET completed", {
+        event: "provider.http.completed",
+        provider: normalizedProvider,
+        endpoint,
+        attempt,
+        maxAttempts: policy.maxAttempts,
+        status: response.status,
+        latencyMs: durationMs,
+      });
 
       return body;
     } catch (cause) {
@@ -164,9 +196,16 @@ export class ExternalHttpClient {
           : "invalid-response";
       const durationMs = elapsedMilliseconds(startedAt);
 
-      this.logger.warn(
-        `External HTTP GET failed provider=${normalizedProvider} endpoint=${endpoint} kind=${kind} status=${response.status} attempt=${attempt}/${policy.maxAttempts} durationMs=${durationMs}`,
-      );
+      this.logger.warn("External HTTP GET failed", {
+        event: "provider.http.failed",
+        provider: normalizedProvider,
+        endpoint,
+        attempt,
+        maxAttempts: policy.maxAttempts,
+        status: response.status,
+        latencyMs: durationMs,
+        errorKind: kind === "invalid-response" ? "invalid-json" : kind,
+      });
 
       throw new ExternalHttpError(
         kind === "timeout"

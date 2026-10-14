@@ -182,7 +182,12 @@ describe("SpeciesService", () => {
     expect(upsert).toHaveBeenCalledOnce();
     expect(upsert.mock.calls[0]).toHaveLength(1);
     expect(Logger.prototype.warn).toHaveBeenCalledWith(
-      "GBIF taxon identity resolution failed (timeout); continuing without a provider mapping",
+      "Provider taxon identity resolution failed; continuing without a provider mapping",
+      {
+        event: "species.identity-resolution.failed",
+        provider: "GBIF",
+        errorKind: "timeout",
+      },
     );
   });
 

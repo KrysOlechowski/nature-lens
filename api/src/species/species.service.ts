@@ -90,7 +90,12 @@ export class SpeciesService {
     } catch (error) {
       if (error instanceof ProviderError) {
         this.logger.warn(
-          `${error.provider} taxon identity resolution failed (${error.kind}); continuing without a provider mapping`,
+          "Provider taxon identity resolution failed; continuing without a provider mapping",
+          {
+            event: "species.identity-resolution.failed",
+            provider: error.provider,
+            errorKind: error.kind,
+          },
         );
 
         return null;
@@ -167,7 +172,12 @@ export class SpeciesService {
     } catch (error) {
       if (error instanceof ProviderError) {
         this.logger.warn(
-          `${error.provider} observation synchronization failed (${error.kind}); continuing with available observations`,
+          "Provider observation synchronization failed; continuing with available observations",
+          {
+            event: "species.observation-synchronization.failed",
+            provider: error.provider,
+            errorKind: error.kind,
+          },
         );
         return;
       }

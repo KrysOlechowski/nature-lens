@@ -63,9 +63,15 @@ describe("ProviderExceptionFilter", () => {
         expect.objectContaining({ message: error.message }),
       );
       expect(Logger.prototype.warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          `provider=iNaturalist kind=${kind} upstreamStatus=503 responseStatus=${statusCode} code=${code}`,
-        ),
+        "Provider request failed",
+        {
+          event: "provider.request.failed",
+          provider: "iNaturalist",
+          errorKind: kind,
+          status: 503,
+          responseStatus: statusCode,
+          code,
+        },
       );
     },
   );

@@ -67,13 +67,16 @@ export class ProviderExceptionFilter implements ExceptionFilter<ProviderError> {
   catch(exception: ProviderError, host: ArgumentsHost): void {
     const mapping = PROVIDER_ERROR_HTTP_MAPPINGS[exception.kind];
     const response = host.switchToHttp().getResponse<HttpResponse>();
-    const upstreamStatus = exception.upstreamStatus
-      ? ` upstreamStatus=${exception.upstreamStatus}`
-      : "";
-
-    this.logger.warn(
-      `Provider request failed provider=${exception.provider} kind=${exception.kind}${upstreamStatus} responseStatus=${mapping.statusCode} code=${mapping.code}`,
-    );
+    this.logger.warn("Provider request failed", {
+      event: "provider.request.failed",
+      provider: exception.provider,
+      errorKind: exception.kind,
+      ...(exception.upstreamStatus === undefined
+        ? {}
+        : { status: exception.upstreamStatus }),
+      responseStatus: mapping.statusCode,
+      code: mapping.code,
+    });
 
     response.status(mapping.statusCode).json({
       statusCode: mapping.statusCode,

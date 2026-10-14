@@ -12,6 +12,10 @@ import type {
   ExternalHttpFetch,
   ExternalHttpRandom,
 } from "../src/external-http/external-http.tokens.js";
+import {
+  getRequestContext,
+  requestContextStorage,
+} from "../src/logging/request-context.js";
 import { NOMINATIM_HTTP_MAX_ATTEMPTS } from "../src/nominatim/nominatim.constants.js";
 
 const DEFAULT_POLICY = createExternalHttpPolicy({
@@ -73,13 +77,22 @@ describe("ExternalHttpClient", () => {
       signal: expect.any(AbortSignal),
     });
     expect(Logger.prototype.log).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "provider=iNaturalist endpoint=https://api.inaturalist.org/v1/taxa status=200 attempt=1/2",
-      ),
+      "External HTTP GET completed",
+      expect.objectContaining({
+        provider: "iNaturalist",
+        endpoint: "/v1/taxa",
+        status: 200,
+        attempt: 1,
+        maxAttempts: 2,
+        latencyMs: expect.any(Number),
+      }),
     );
-    expect(Logger.prototype.log).not.toHaveBeenCalledWith(
-      expect.stringContaining("secret-search-term"),
-    );
+    const logCalls = [
+      ...vi.mocked(Logger.prototype.debug).mock.calls,
+      ...vi.mocked(Logger.prototype.log).mock.calls,
+      ...vi.mocked(Logger.prototype.warn).mock.calls,
+    ];
+    expect(JSON.stringify(logCalls)).not.toContain("secret-search-term");
   });
 
   it("sends an application-specific user agent when requested", async () => {
@@ -126,16 +139,53 @@ describe("ExternalHttpClient", () => {
   });
 
   it("retries a network error and can recover", async () => {
+    const requestIds: Array<string | undefined> = [];
     const request = vi
       .fn<ExternalHttpFetch>()
-      .mockRejectedValueOnce(new TypeError("fetch failed"))
-      .mockResolvedValueOnce(Response.json({ results: [] }));
+      .mockImplementationOnce(async () => {
+        requestIds.push(getRequestContext()?.requestId);
+        throw new TypeError("fetch failed");
+      })
+      .mockImplementationOnce(async () => {
+        requestIds.push(getRequestContext()?.requestId);
+        return Response.json({ results: [] });
+      });
     const { client, delay } = createClient(request);
 
-    await expect(getJson(client)).resolves.toEqual({ results: [] });
+    await expect(
+      requestContextStorage.run(
+        { requestId: "d877f30e-22d8-43b6-bd59-e7eb1ab9ad4e" },
+        () => getJson(client),
+      ),
+    ).resolves.toEqual({ results: [] });
 
     expect(request).toHaveBeenCalledTimes(2);
     expect(delay).toHaveBeenCalledOnce();
+    expect(requestIds).toEqual([
+      "d877f30e-22d8-43b6-bd59-e7eb1ab9ad4e",
+      "d877f30e-22d8-43b6-bd59-e7eb1ab9ad4e",
+    ]);
+    expect(Logger.prototype.debug).toHaveBeenNthCalledWith(
+      1,
+      "External HTTP GET started",
+      expect.objectContaining({
+        provider: "iNaturalist",
+        endpoint: "/v1/taxa",
+        attempt: 1,
+      }),
+    );
+    expect(Logger.prototype.debug).toHaveBeenNthCalledWith(
+      2,
+      "External HTTP GET started",
+      expect.objectContaining({
+        provider: "iNaturalist",
+        endpoint: "/v1/taxa",
+        attempt: 2,
+      }),
+    );
+    expect(
+      JSON.stringify(vi.mocked(Logger.prototype.debug).mock.calls),
+    ).not.toContain("secret-search-term");
   });
 
   it("retries a timeout and can recover", async () => {
