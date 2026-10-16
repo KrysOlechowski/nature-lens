@@ -31,8 +31,12 @@ import type {
 import type { SpeciesObservationSeasonality } from "./species-observation-seasonality.model.js";
 import type {
   GroupedSpeciesObservation,
+  ObservationDataProvider,
+  ObservationProviderStatus,
   SpeciesObservation,
   SpeciesObservationPage,
+  SpeciesObservationPageData,
+  SpeciesObservationPageSourceMetadata,
   StoredSpeciesObservationPage,
 } from "./species-observation.model.js";
 import { mapINaturalistSpecies } from "./inaturalist-species.mapper.js";
@@ -47,7 +51,7 @@ export class SpeciesService {
   private readonly logger = new Logger(SpeciesService.name);
   private readonly observationRefreshes = new Map<
     string,
-    Promise<SpeciesObservationPage>
+    Promise<SynchronizedObservationPage>
   >();
 
   constructor(
@@ -141,34 +145,45 @@ export class SpeciesService {
       pagination,
       mapINaturalistObservation,
     );
-    const gbifPagePromise = gbifExternalTaxonId
+    const gbifStatusPromise = gbifExternalTaxonId
       ? this.synchronizeSecondaryObservationPage(
           speciesId,
           parseExternalTaxonId(gbifExternalTaxonId, "GBIF"),
           pagination,
         )
-      : Promise.resolve();
-    const [primaryPage] = await Promise.all([
+      : Promise.resolve(null);
+    const [primaryPage, gbifStatus] = await Promise.all([
       primaryPagePromise,
-      gbifPagePromise,
+      gbifStatusPromise,
     ]);
 
-    return primaryPage;
+    return {
+      ...primaryPage,
+      metadata: {
+        ...primaryPage.metadata,
+        providers: [
+          toProviderStatus("inaturalist", primaryPage.metadata.freshness),
+          ...(gbifStatus ? [gbifStatus] : []),
+        ],
+      },
+    };
   }
 
   private async synchronizeSecondaryObservationPage(
     speciesId: string,
     externalTaxonId: number,
     pagination: ObservationPageRequest,
-  ): Promise<void> {
+  ): Promise<ObservationProviderStatus> {
     try {
-      await this.synchronizeObservationPage(
+      const page = await this.synchronizeObservationPage(
         speciesId,
         this.gbifObservationProvider,
         externalTaxonId,
         pagination,
         mapGBIFObservation,
       );
+
+      return toProviderStatus("gbif", page.metadata.freshness);
     } catch (error) {
       if (error instanceof ProviderError) {
         this.logger.warn(
@@ -179,7 +194,7 @@ export class SpeciesService {
             errorKind: error.kind,
           },
         );
-        return;
+        return { provider: "gbif", status: "unavailable" };
       }
 
       throw error;
@@ -192,7 +207,7 @@ export class SpeciesService {
     externalTaxonId: number,
     pagination: ObservationPageRequest,
     mapObservation: (observation: TResult) => SpeciesObservation,
-  ): Promise<SpeciesObservationPage> {
+  ): Promise<SynchronizedObservationPage> {
     const storedPage = await this.observationRepository.findPage(
       speciesId,
       provider.providerName,
@@ -239,7 +254,7 @@ export class SpeciesService {
     pagination: ObservationPageRequest,
     mapObservation: (observation: TResult) => SpeciesObservation,
     storedPage: StoredSpeciesObservationPage | null,
-  ): Promise<SpeciesObservationPage> {
+  ): Promise<SynchronizedObservationPage> {
     let providerPage;
 
     try {
@@ -345,7 +360,7 @@ function toObservationPage(
   page: StoredSpeciesObservationPage,
   servedFrom: "local-database" | "provider-sync",
   freshness: "fresh" | "stale",
-): SpeciesObservationPage {
+): SynchronizedObservationPage {
   return {
     totalResults: page.totalResults,
     page: page.page,
@@ -356,6 +371,20 @@ function toObservationPage(
       freshness,
       lastSuccessfulSyncAt: page.lastSuccessfulSyncAt,
     },
+  };
+}
+
+interface SynchronizedObservationPage extends SpeciesObservationPageData {
+  metadata: SpeciesObservationPageSourceMetadata;
+}
+
+function toProviderStatus(
+  provider: ObservationDataProvider,
+  freshness: "fresh" | "stale",
+): ObservationProviderStatus {
+  return {
+    provider,
+    status: freshness === "stale" ? "stale" : "available",
   };
 }
 

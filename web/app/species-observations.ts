@@ -9,6 +9,10 @@ import {
   observationSeasonalitySchema,
   type SpeciesObservationSeasonality,
 } from "./species-observation-seasonality";
+import {
+  parseObservationSynchronization,
+  type ObservationSynchronization,
+} from "./species-observation-providers";
 
 export type SpeciesObservationsResponse =
   | {
@@ -31,6 +35,7 @@ export type SpeciesObservationSeasonalityResponse =
 export interface SpeciesObservationData {
   observations: SpeciesObservationsResponse;
   seasonality: SpeciesObservationSeasonalityResponse;
+  synchronization: ObservationSynchronization;
 }
 
 const bootstrapPageSize = "200";
@@ -38,14 +43,14 @@ const bootstrapPageSize = "200";
 export async function getSpeciesObservations(
   speciesId: string,
 ): Promise<SpeciesObservationData> {
-  await bootstrapSpeciesObservations(speciesId);
+  const synchronization = await bootstrapSpeciesObservations(speciesId);
 
   const [observations, seasonality] = await Promise.all([
     getSpatialObservations(speciesId),
     getObservationSeasonality(speciesId),
   ]);
 
-  return { observations, seasonality };
+  return { observations, seasonality, synchronization };
 }
 
 async function getSpatialObservations(
@@ -108,7 +113,9 @@ async function getObservationSeasonality(
   }
 }
 
-async function bootstrapSpeciesObservations(speciesId: string): Promise<void> {
+async function bootstrapSpeciesObservations(
+  speciesId: string,
+): Promise<ObservationSynchronization> {
   try {
     const url = createObservationsUrl(speciesId);
 
@@ -117,9 +124,16 @@ async function bootstrapSpeciesObservations(speciesId: string): Promise<void> {
 
     const response = await fetch(url, { cache: "no-store" });
 
-    await response.arrayBuffer();
+    if (!response.ok) {
+      await response.arrayBuffer();
+
+      return { status: "unavailable" };
+    }
+
+    return parseObservationSynchronization(await response.json());
   } catch {
     // The spatial read may still return previously synchronized observations.
+    return { status: "unavailable" };
   }
 }
 

@@ -81,14 +81,28 @@ export type ObservationPageServedFrom = "local-database" | "provider-sync";
 
 export type ObservationPageFreshness = "fresh" | "stale";
 
+export type ObservationDataProvider = "inaturalist" | "gbif";
+
+export type ObservationProviderDataStatus =
+  "available" | "stale" | "unavailable";
+
+export interface ObservationProviderStatus {
+  provider: ObservationDataProvider;
+  status: ObservationProviderDataStatus;
+}
+
+export interface SpeciesObservationPageSourceMetadata {
+  servedFrom: ObservationPageServedFrom;
+  freshness: ObservationPageFreshness;
+  lastSuccessfulSyncAt: string;
+}
+
 export interface SpeciesObservationPage {
   totalResults: number;
   page: number;
   perPage: number;
   results: SpeciesObservation[];
-  metadata: {
-    servedFrom: ObservationPageServedFrom;
-    freshness: ObservationPageFreshness;
-    lastSuccessfulSyncAt: string;
+  metadata: SpeciesObservationPageSourceMetadata & {
+    providers: ObservationProviderStatus[];
   };
 }

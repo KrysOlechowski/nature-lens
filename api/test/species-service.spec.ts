@@ -230,7 +230,7 @@ describe("SpeciesService", () => {
     );
   });
 
-  it("synchronizes, persists, and reads a missing observation page", async () => {
+  it("synchronizes iNaturalist without reporting unmapped GBIF as a failure", async () => {
     const getObservations = vi.fn().mockResolvedValue({
       totalResults: 1,
       page: 2,
@@ -292,6 +292,7 @@ describe("SpeciesService", () => {
         servedFrom: "provider-sync",
         freshness: "fresh",
         lastSuccessfulSyncAt: synchronizedAt,
+        providers: [{ provider: "inaturalist", status: "available" }],
       },
     });
     expect(getObservations).toHaveBeenCalledWith(1696537, {
@@ -412,7 +413,14 @@ describe("SpeciesService", () => {
     await expect(
       service.getObservations("42", { page: 1, perPage: 20 }),
     ).resolves.toMatchObject({
-      metadata: { servedFrom: "provider-sync", freshness: "fresh" },
+      metadata: {
+        servedFrom: "provider-sync",
+        freshness: "fresh",
+        providers: [
+          { provider: "inaturalist", status: "available" },
+          { provider: "gbif", status: "available" },
+        ],
+      },
     });
     expect(getINaturalistObservations).toHaveBeenCalledWith(1696537, {
       page: 1,
@@ -438,6 +446,121 @@ describe("SpeciesService", () => {
     );
   });
 
+  it("reports an unavailable mapped GBIF provider without hiding iNaturalist data", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-09T12:00:00.000Z"));
+    vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const gbifError = new ProviderError("GBIF is unavailable", {
+      kind: "unavailable",
+      provider: "GBIF",
+    });
+    const getINaturalistObservations = vi.fn();
+    const getGBIFObservations = vi.fn().mockRejectedValue(gbifError);
+    const findProviderExternalId = vi
+      .fn()
+      .mockImplementation((_speciesId: string, provider: string) =>
+        Promise.resolve(provider === "iNaturalist" ? "1696537" : "2441184"),
+      );
+    const findPage = vi
+      .fn()
+      .mockImplementation((_speciesId: string, provider: string) =>
+        Promise.resolve(provider === "iNaturalist" ? createStoredPage() : null),
+      );
+    const replacePage = vi.fn();
+    const service = new SpeciesService(
+      {} as INaturalistSpeciesSearchProvider,
+      {
+        providerName: "iNaturalist",
+        getObservations: getINaturalistObservations,
+      } as INaturalistObservationProvider,
+      createGBIFObservationProvider(getGBIFObservations),
+      { findProviderExternalId } as Pick<
+        SpeciesRepository,
+        "findProviderExternalId"
+      > as SpeciesRepository,
+      { findPage, replacePage } as Pick<
+        ObservationRepository,
+        "findPage" | "replacePage"
+      > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
+    );
+
+    const page = await service.getObservations("42", {
+      page: 2,
+      perPage: 20,
+    });
+
+    expect(page.metadata.providers).toEqual([
+      { provider: "inaturalist", status: "available" },
+      { provider: "gbif", status: "unavailable" },
+    ]);
+    expect(page.results).toEqual([normalizedObservation]);
+    expect(page.results[0]).not.toHaveProperty("status");
+    expect(getINaturalistObservations).not.toHaveBeenCalled();
+    expect(getGBIFObservations).toHaveBeenCalledOnce();
+    expect(replacePage).not.toHaveBeenCalled();
+  });
+
+  it("reports stale mapped GBIF data when refresh fails with a usable fallback", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-09T13:00:00.000Z"));
+    const gbifError = new ProviderError("GBIF timed out", {
+      kind: "timeout",
+      provider: "GBIF",
+    });
+    const getINaturalistObservations = vi.fn();
+    const getGBIFObservations = vi.fn().mockRejectedValue(gbifError);
+    const freshINaturalistPage = createStoredPage({
+      lastSuccessfulSyncAt: "2026-10-09T13:00:00.000Z",
+    });
+    const findProviderExternalId = vi
+      .fn()
+      .mockImplementation((_speciesId: string, provider: string) =>
+        Promise.resolve(provider === "iNaturalist" ? "1696537" : "2441184"),
+      );
+    const findPage = vi
+      .fn()
+      .mockImplementation((_speciesId: string, provider: string) =>
+        Promise.resolve(
+          provider === "iNaturalist"
+            ? freshINaturalistPage
+            : createStoredPage(),
+        ),
+      );
+    const replacePage = vi.fn();
+    const service = new SpeciesService(
+      {} as INaturalistSpeciesSearchProvider,
+      {
+        providerName: "iNaturalist",
+        getObservations: getINaturalistObservations,
+      } as INaturalistObservationProvider,
+      createGBIFObservationProvider(getGBIFObservations),
+      { findProviderExternalId } as Pick<
+        SpeciesRepository,
+        "findProviderExternalId"
+      > as SpeciesRepository,
+      { findPage, replacePage } as Pick<
+        ObservationRepository,
+        "findPage" | "replacePage"
+      > as ObservationRepository,
+      {} as SpeciesIdentityResolver,
+    );
+
+    const page = await service.getObservations("42", {
+      page: 2,
+      perPage: 20,
+    });
+
+    expect(page.metadata.providers).toEqual([
+      { provider: "inaturalist", status: "available" },
+      { provider: "gbif", status: "stale" },
+    ]);
+    expect(page.results).toEqual([normalizedObservation]);
+    expect(getINaturalistObservations).not.toHaveBeenCalled();
+    expect(getGBIFObservations).toHaveBeenCalledOnce();
+    expect(replacePage).not.toHaveBeenCalled();
+  });
+
   it("serves a fresh exact page from PostgreSQL without calling the provider", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-09T12:00:00.000Z"));
@@ -457,6 +580,7 @@ describe("SpeciesService", () => {
         servedFrom: "local-database",
         freshness: "fresh",
         lastSuccessfulSyncAt: synchronizedAt,
+        providers: [{ provider: "inaturalist", status: "available" }],
       },
       results: [normalizedObservation],
     });
@@ -692,6 +816,7 @@ describe("SpeciesService", () => {
         servedFrom: "local-database",
         freshness: "stale",
         lastSuccessfulSyncAt: synchronizedAt,
+        providers: [{ provider: "inaturalist", status: "stale" }],
       },
     });
     expect(replacePage).not.toHaveBeenCalled();

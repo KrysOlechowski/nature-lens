@@ -1,4 +1,5 @@
 import type {
+  ObservationProviderStatus,
   ObservationPageFreshness,
   ObservationPageServedFrom,
   ObservationLocation,
@@ -12,11 +13,13 @@ class SpeciesObservationPageMetadataDto {
   readonly servedFrom: ObservationPageServedFrom;
   readonly freshness: ObservationPageFreshness;
   readonly lastSuccessfulSyncAt: string;
+  readonly providers: ObservationProviderStatus[];
 
   constructor(metadata: SpeciesObservationPage["metadata"]) {
     this.servedFrom = metadata.servedFrom;
     this.freshness = metadata.freshness;
     this.lastSuccessfulSyncAt = metadata.lastSuccessfulSyncAt;
+    this.providers = metadata.providers;
   }
 }
 

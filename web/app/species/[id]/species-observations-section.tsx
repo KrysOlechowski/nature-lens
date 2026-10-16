@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { getSpeciesObservations } from "../../species-observations";
+import { SpeciesObservationAvailabilityNotice } from "./species-observation-availability-notice";
 import { SpeciesObservationsRetry } from "./species-observations-retry";
 
 interface SpeciesObservationsSectionProps {
@@ -47,10 +48,13 @@ export async function SpeciesObservationsSection({
   mapStyleUrl,
   speciesId,
 }: SpeciesObservationsSectionProps) {
-  const { observations, seasonality } = await getSpeciesObservations(speciesId);
+  const { observations, seasonality, synchronization } =
+    await getSpeciesObservations(speciesId);
 
   return (
     <>
+      <SpeciesObservationAvailabilityNotice synchronization={synchronization} />
+
       <section aria-labelledby="species-map-heading" className="mt-10">
         <ObservationSectionHeading />
         {observations.status === "unavailable" ? (

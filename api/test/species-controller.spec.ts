@@ -236,6 +236,10 @@ describe("SpeciesController", () => {
         servedFrom: "local-database",
         freshness: "fresh",
         lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+        providers: [
+          { provider: "inaturalist" as const, status: "available" as const },
+          { provider: "gbif" as const, status: "stale" as const },
+        ],
       },
     });
     const speciesService = {
@@ -276,6 +280,10 @@ describe("SpeciesController", () => {
         servedFrom: "local-database",
         freshness: "fresh",
         lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+        providers: [
+          { provider: "inaturalist", status: "available" },
+          { provider: "gbif", status: "stale" },
+        ],
       },
     });
     expect(getObservations).toHaveBeenCalledWith("1696537", {
@@ -294,6 +302,9 @@ describe("SpeciesController", () => {
         servedFrom: "provider-sync",
         freshness: "fresh",
         lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+        providers: [
+          { provider: "inaturalist" as const, status: "available" as const },
+        ],
       },
     });
     const speciesService = {
@@ -319,6 +330,9 @@ describe("SpeciesController", () => {
         servedFrom: "provider-sync",
         freshness: "fresh",
         lastSuccessfulSyncAt: "2026-10-09T11:30:00.000Z",
+        providers: [
+          { provider: "inaturalist" as const, status: "available" as const },
+        ],
       },
     });
     const controller = new SpeciesController({

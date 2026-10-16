@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Place pages progressively combine biodiversity observations, current weather, and protected areas
+> **Status:** Multi-provider observation flows expose request-scoped degraded-mode metadata without hiding usable data
 >
-> **Current phase:** Phase 8 · Multi-provider resilience and performance
+> **Current phase:** Phase 9 · End-to-end testing and CI
 >
-> **Last completed step:** 53 · Add structured logging and request correlation
+> **Last completed step:** 54 · Add provider health and partial-failure metadata
 >
-> **Current step:** 54 · Add provider health and partial-failure metadata
+> **Current step:** 55 · Add focused unit tests for domain mapping
 >
-> **Next step:** 55 · Add focused unit tests for domain mapping
+> **Next step:** 56 · Expand API integration tests
 
 ## What currently works
 
@@ -41,6 +41,7 @@
 - The iNaturalist adapter searches active species and retrieves explicit observation pages restricted to Poland. Responses are runtime-validated before being mapped into small integration types.
 - The GBIF adapter retrieves paginated occurrence records restricted to Poland, validates only the provider fields required by the application, and maps them into the existing provider-independent observation shape.
 - Species observation synchronization also fetches GBIF pages when the species has a resolved GBIF mapping; a controlled GBIF provider failure does not remove the available iNaturalist result.
+- Observation synchronization responses expose request-scoped data availability for each participating provider as `available`, `stale`, or `unavailable`. Species pages keep rendering usable observations and show a non-blocking warning for stale or unavailable provider data.
 - Biodiversity provider contracts are split by species-search, taxon-match, and observation capabilities. iNaturalist implements search and observations, while GBIF implements matching and observations.
 - GBIF also exposes a taxon-match capability pinned to the legacy GBIF Backbone checklist used explicitly by its occurrence adapter.
 - Species identity resolution links exact, high-confidence GBIF Backbone matches to iNaturalist taxa, resolves synonyms to accepted GBIF usages, and leaves uncertain matches separate.
@@ -116,6 +117,8 @@
 - WGS84 points use longitude-first coordinate order. Spatial reads support species-scoped and all-species bounding boxes, include boundaries, use deterministic recency ordering, and return at most 1,000 features.
 - Bounding-box reads never contact providers. Their `locally-synchronized` dataset scope must not be presented as complete provider coverage.
 - Observation page synchronization atomically upserts normalized observations and replaces exact-page membership. Fresh pages avoid the provider; stale pages may fall back to persisted data after a controlled provider failure. Single-flight keys include species ID, provider, page, and page size, and remain active through provider fetch, transactional persistence, page metadata replacement, and the final read.
+- Provider status describes only data availability during the current observation synchronization use case, not global provider health. A fresh cache hit is `available` without implying that the provider was contacted; a failed refresh with usable persisted data is `stale`; a controlled failure without usable fallback is `unavailable`; and GBIF is omitted when no confident mapping exists.
+- Provider availability remains separate from page freshness/source, local dataset scope, and response truncation. It is response metadata and is never copied onto observation records.
 - The observation freshness window defaults to one hour and is configurable with `OBSERVATION_FRESHNESS_WINDOW_SECONDS`.
 - Incoming throttling uses one `@nestjs/throttler` policy with a 60-second window, a default limit of 120 requests, and an expensive-route override of 30 requests. The three values are validated environment configuration; throttler-provided `429` responses, headers, `req.ip` tracking, and IPv6 grouping are preserved without trusting forwarded headers or coupling API limits to provider limits.
 - Nest's built-in `ConsoleLogger` emits compact JSON and flattens structured metadata into top-level fields. One module-level `AsyncLocalStorage` singleton supplies request context without leaking ALS mechanics into domain services; bootstrap and other non-request logs remain valid without a `requestId`.
@@ -180,15 +183,16 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 53.
-- `pnpm exec eslint api`: passed after step 53.
-- `pnpm --filter api typecheck`: passed after step 53.
-- `pnpm --filter api test`: passed all 306 API unit tests after step 53.
+- `pnpm format:check`: passed after step 54.
+- `pnpm lint`: passed after step 54.
+- `pnpm typecheck`: passed for the web and API applications after step 54.
+- `pnpm --filter api test`: passed all 308 API unit tests after step 54.
+- `pnpm --filter web test`: passed all 8 frontend unit tests after step 54.
 - `pnpm test:integration`: the 15-test suite includes the step 47 all-species spatial query, but could not run after step 47 because Testcontainers found no working container runtime; all 14 preceding PostgreSQL/PostGIS persistence tests passed after step 42.
-- The API production build passed after step 53.
+- The API production build passed after step 54.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
-- `git diff --check`: passed after step 53.
-- Step 53 Definition of Done is satisfied: one server-generated request ID can be followed through controller, service, provider transport attempts, provider error handling, and the final HTTP response log without exposing query values or provider payloads.
+- `git diff --check`: passed after step 54.
+- Step 54 Definition of Done is satisfied: the species observations UI keeps usable data visible and explicitly reports request-scoped partial provider failures instead of turning them into a global page error.
