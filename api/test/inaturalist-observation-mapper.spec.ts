@@ -97,17 +97,31 @@ describe("mapINaturalistObservation", () => {
     });
   });
 
-  it("keeps a private observation without public coordinates private", () => {
+  it("removes coordinates when the provider marks the location as private", () => {
     expect(
       mapINaturalistObservation({
         ...baseObservation,
-        coordinates: null,
         geoprivacy: "private",
         obscured: true,
       }),
     ).toMatchObject({
       location: null,
       locationPrivacy: "private",
+    });
+  });
+
+  it("keeps public coordinates available when the provider marks the location as open", () => {
+    expect(
+      mapINaturalistObservation({
+        ...baseObservation,
+        geoprivacy: "open",
+      }),
+    ).toMatchObject({
+      location: {
+        latitude: 53.4029839302,
+        longitude: 23.2064155596,
+      },
+      locationPrivacy: "open",
     });
   });
 

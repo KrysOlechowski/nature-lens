@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GBIFObservationResult } from "../src/gbif/gbif.adapter.js";
 import { mapGBIFObservation } from "../src/species/gbif-observation.mapper.js";
+import { mapINaturalistObservation } from "../src/species/inaturalist-observation.mapper.js";
 
 const baseObservation: GBIFObservationResult = {
   externalId: 6_129_944_648,
@@ -77,6 +78,38 @@ describe("mapGBIFObservation", () => {
     });
   });
 
+  it("keeps similar provider records separate without an exact canonical identity", () => {
+    const inaturalistObservation = mapINaturalistObservation({
+      externalId: 335927335,
+      observedOn: "2026-01-19",
+      timeObservedAt: "2026-01-19T14:21:00+01:00",
+      coordinates: {
+        latitude: 52.708039,
+        longitude: 23.764744,
+      },
+      positionalAccuracyMeters: 26_004,
+      publicPositionalAccuracyMeters: null,
+      geoprivacy: null,
+      taxonGeoprivacy: null,
+      obscured: false,
+      sourceUrl: "https://www.inaturalist.org/observations/335927335",
+      licenseCode: null,
+    });
+    const gbifObservation = mapGBIFObservation({
+      ...baseObservation,
+      canonicalIdentity: null,
+    });
+
+    expect(gbifObservation).toMatchObject({
+      observedOn: inaturalistObservation.observedOn,
+      observedAt: inaturalistObservation.observedAt,
+      location: inaturalistObservation.location,
+    });
+    expect(gbifObservation.deduplication.key).not.toBe(
+      inaturalistObservation.deduplication.key,
+    );
+  });
+
   it("does not invent unavailable license or dataset metadata", () => {
     expect(
       mapGBIFObservation({
@@ -121,6 +154,18 @@ describe("mapGBIFObservation", () => {
       mapGBIFObservation({
         ...baseObservation,
         eventDate: "2026-01-19/2026-01-20",
+      }),
+    ).toMatchObject({
+      observedOn: null,
+      observedAt: null,
+    });
+  });
+
+  it("rejects an impossible calendar date instead of allowing JavaScript normalization", () => {
+    expect(
+      mapGBIFObservation({
+        ...baseObservation,
+        eventDate: "2026-02-30T14:21:00+01:00",
       }),
     ).toMatchObject({
       observedOn: null,

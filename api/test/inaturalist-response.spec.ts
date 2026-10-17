@@ -218,6 +218,28 @@ describe("parseINaturalistObservationsResponse", () => {
         total_results: 1,
       },
     ],
+    [
+      "an impossible observation date",
+      {
+        page: 1,
+        per_page: 1,
+        results: [
+          {
+            geojson: null,
+            geoprivacy: null,
+            id: 123,
+            obscured: false,
+            observed_on: "2026-02-30",
+            positional_accuracy: null,
+            public_positional_accuracy: null,
+            taxon_geoprivacy: null,
+            time_observed_at: null,
+            uri: "https://www.inaturalist.org/observations/123",
+          },
+        ],
+        total_results: 1,
+      },
+    ],
   ])(
     "reports %s as a controlled integration error",
     (_description, response) => {

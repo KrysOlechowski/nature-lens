@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Multi-provider observation flows expose request-scoped degraded-mode metadata without hiding usable data
+> **Status:** Critical biodiversity mapping, privacy, date, and deduplication invariants have focused unit coverage
 >
 > **Current phase:** Phase 9 · End-to-end testing and CI
 >
-> **Last completed step:** 54 · Add provider health and partial-failure metadata
+> **Last completed step:** 55 · Add focused unit tests for domain mapping
 >
-> **Current step:** 55 · Add focused unit tests for domain mapping
+> **Current step:** 56 · Expand API integration tests
 >
-> **Next step:** 56 · Expand API integration tests
+> **Next step:** 57 · Add end-to-end happy-path test
 
 ## What currently works
 
@@ -58,7 +58,7 @@
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
 - Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior, while concurrent misses and stale refreshes for the same provider page share the complete synchronization operation.
 - Local observations can be queried by a WGS84 bounding box and returned as a bounded GeoJSON `FeatureCollection<Point>` with explicit local-dataset and truncation metadata.
-- Unit tests cover transport, provider validation and mapping, normalization, application services, controllers, persistence behavior, and provider-error translation. Integration tests exercise repository migrations and PostgreSQL/PostGIS behavior in an ephemeral container.
+- Unit tests cover transport, provider validation and mapping, normalization, application services, controllers, persistence behavior, and provider-error translation. Focused mapper cases protect private iNaturalist locations, invalid provider dates, and exact-identity-only cross-provider deduplication. Integration tests exercise repository migrations and PostgreSQL/PostGIS behavior in an ephemeral container.
 
 ## Persistence snapshot
 
@@ -88,7 +88,7 @@
 - License codes and URLs are independent optional representations. Nature Lens preserves only values supplied by a provider and does not invent a missing equivalent.
 - GBIF occurrence responses provide dataset and publisher identifiers without an additional Registry request. A stable GBIF dataset link is derived from `datasetKey`; unavailable titles or publisher names remain `null`.
 - Observation upserts enrich missing provenance without replacing stored optional values with a later `null`. A changed dataset identifier starts a new metadata group so fields from different datasets are never combined.
-- GBIF exposes public occurrence coordinates without an iNaturalist-equivalent privacy contract. Their privacy remains `unknown`; missing coordinates never imply obscurity, and date-times without an explicit offset never receive an invented timezone.
+- GBIF exposes public occurrence coordinates without an iNaturalist-equivalent privacy contract. Their privacy remains `unknown`; missing coordinates never imply obscurity, and date-times without an explicit offset or a valid calendar date never receive an invented timestamp.
 - Application services and normalized models remain provider-independent while retaining provider name, external ID, and source URL.
 - Species use internal `bigint` identities represented as strings in public JSON. Provider mappings are written transactionally and cannot be silently reassigned to another species.
 - Species upserts are keyed by provider mapping rather than scientific name. Name normalization is only one comparison signal and never merges taxa by itself.
@@ -99,7 +99,7 @@
 - Observation storage identity remains provider-scoped. Cross-provider grouping uses only exact canonical identities: direct iNaturalist records use `inaturalist:{id}`, and a GBIF record may share that key only for dataset `50c9509d-22c7-4a22-a47d-8c48425ef4a7` with an exact `https://www.inaturalist.org/observations/{id}` `occurrenceID`.
 - iNaturalist is always the representative of a linked iNaturalist/GBIF group. The representative is chosen before spatial filtering, so a group has no public map point when its iNaturalist record has none, even if the GBIF copy contains coordinates.
 - Bounding-box limits and truncation metadata count deduplicated groups rather than raw provider records; MapLibre consequently clusters one feature per group.
-- Location availability, privacy, and precision are separate concepts. Missing coordinates do not imply obscurity, and restricted locations never fall back to more precise non-public accuracy.
+- Location availability, privacy, and precision are separate concepts. Missing coordinates do not imply obscurity, explicitly private iNaturalist locations expose no domain coordinates, and restricted locations never fall back to more precise non-public accuracy.
 - Observation dates and timestamps remain independent so date-only provider data does not receive invented temporal precision.
 - Species-scoped spatial reads, all-species viewport reads, and seasonality use the same SQL definition for selecting a deduplicated representative: iNaturalist first, then stable observation ID. Representatives are selected before spatial filtering, so another provider's coordinates never pull an otherwise non-public or out-of-bounds representative into a result.
 - The general observations endpoint is independent of place identity and provider extents. Its bbox always comes from the current map viewport; `limit` applies only to GeoJSON features, while exact observation totals and species aggregation are calculated over the full bbox before independent response limits.

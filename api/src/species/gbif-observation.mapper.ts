@@ -75,6 +75,7 @@ function resolveObservedAt(eventDate: string | null): string | null {
   if (
     !eventDate ||
     !dateTimeWithOffsetPattern.test(eventDate) ||
+    resolveObservedOn(eventDate) === null ||
     Number.isNaN(Date.parse(eventDate))
   ) {
     return null;

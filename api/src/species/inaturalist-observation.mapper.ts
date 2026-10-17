@@ -14,13 +14,17 @@ export function mapINaturalistObservation(
   return {
     observedOn: observation.observedOn,
     observedAt: observation.timeObservedAt,
-    location: observation.coordinates
-      ? {
-          ...observation.coordinates,
-          accuracyMeters,
-          precision: resolveLocationPrecision(locationPrivacy, accuracyMeters),
-        }
-      : null,
+    location:
+      observation.coordinates && locationPrivacy !== "private"
+        ? {
+            ...observation.coordinates,
+            accuracyMeters,
+            precision: resolveLocationPrecision(
+              locationPrivacy,
+              accuracyMeters,
+            ),
+          }
+        : null,
     locationPrivacy,
     deduplication: {
       key: `inaturalist:${observation.externalId}`,
