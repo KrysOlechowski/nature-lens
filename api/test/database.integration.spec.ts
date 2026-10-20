@@ -1015,7 +1015,7 @@ describe("database persistence", () => {
     ]);
 
     const result = await observationRepository.findAllSpeciesWithinBoundingBox(
-      { west: 20, south: 51, east: 22, north: 53.9 },
+      { west: 20, south: 51, east: 23.9, north: 53.9 },
       1,
       1,
     );

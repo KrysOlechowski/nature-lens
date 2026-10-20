@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Critical biodiversity mapping, privacy, date, and deduplication invariants have focused unit coverage
+> **Status:** Critical API search, synchronization, and spatial-read flows have HTTP-level integration coverage against PostgreSQL/PostGIS
 >
 > **Current phase:** Phase 9 · End-to-end testing and CI
 >
-> **Last completed step:** 55 · Add focused unit tests for domain mapping
+> **Last completed step:** 56 · Expand API integration tests
 >
-> **Current step:** 56 · Expand API integration tests
+> **Current step:** 57 · Add end-to-end happy-path test
 >
-> **Next step:** 57 · Add end-to-end happy-path test
+> **Next step:** 58 · Add CI quality pipeline
 
 ## What currently works
 
@@ -58,7 +58,7 @@
 - Provider failures are translated into a provider-neutral taxonomy and stable API errors without leaking transport details, validation errors, or provider payloads.
 - Species and normalized observations are persisted in PostgreSQL/PostGIS. Exact observation pages use a database-backed read-through cache with configurable freshness and stale-if-error behavior, while concurrent misses and stale refreshes for the same provider page share the complete synchronization operation.
 - Local observations can be queried by a WGS84 bounding box and returned as a bounded GeoJSON `FeatureCollection<Point>` with explicit local-dataset and truncation metadata.
-- Unit tests cover transport, provider validation and mapping, normalization, application services, controllers, persistence behavior, and provider-error translation. Focused mapper cases protect private iNaturalist locations, invalid provider dates, and exact-identity-only cross-provider deduplication. Integration tests exercise repository migrations and PostgreSQL/PostGIS behavior in an ephemeral container.
+- Unit tests cover transport, provider validation and mapping, normalization, application services, controllers, persistence behavior, and provider-error translation. Focused mapper cases protect private iNaturalist locations, invalid provider dates, and exact-identity-only cross-provider deduplication. Integration tests exercise repository migrations and PostgreSQL/PostGIS behavior in an ephemeral container, including the HTTP-level species search, multi-provider observation synchronization, species bbox, and all-species bbox flow with only external providers stubbed.
 
 ## Persistence snapshot
 
@@ -135,7 +135,7 @@
 
 ## Known limitations / blockers
 
-- HTTP-level integration tests and end-to-end browser tests are not configured yet.
+- End-to-end browser tests are not configured yet.
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
 - CI and production deployment are not configured.
 - Observation and weather single-flight registries are process-local. Multiple API replicas could each refresh the same key concurrently; distributed coordination is not justified for the current single-process MVP.
@@ -183,16 +183,16 @@ Run development servers in separate terminals. The frontend defaults to http://l
 
 ## Verification
 
-- `pnpm format:check`: passed after step 54.
-- `pnpm lint`: passed after step 54.
-- `pnpm typecheck`: passed for the web and API applications after step 54.
-- `pnpm --filter api test`: passed all 308 API unit tests after step 54.
+- `pnpm format:check`: passed for the step 56 changed files.
+- `pnpm exec eslint api`: passed after step 56.
+- `pnpm --filter api typecheck`: passed after step 56.
+- `pnpm --filter api test`: passed all 312 API unit tests after step 56.
 - `pnpm --filter web test`: passed all 8 frontend unit tests after step 54.
-- `pnpm test:integration`: the 15-test suite includes the step 47 all-species spatial query, but could not run after step 47 because Testcontainers found no working container runtime; all 14 preceding PostgreSQL/PostGIS persistence tests passed after step 42.
+- `pnpm test:integration`: passed all 16 API integration tests after step 56 against ephemeral migrated PostgreSQL/PostGIS databases.
 - The API production build passed after step 54.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
-- `git diff --check`: passed after step 54.
-- Step 54 Definition of Done is satisfied: the species observations UI keeps usable data visible and explicitly reports request-scoped partial provider failures instead of turning them into a global page error.
+- `git diff --check`: passed after step 56.
+- Step 56 Definition of Done is satisfied: the critical search, synchronization, and bbox API flow works through real controllers, services, repositories, migrations, and PostgreSQL/PostGIS while only external providers are stubbed.
