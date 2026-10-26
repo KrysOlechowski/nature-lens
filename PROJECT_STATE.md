@@ -2,19 +2,20 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Primary species and place journeys have deterministic browser-level end-to-end coverage
+> **Status:** Pull requests and main-branch changes have one automated application quality gate
 >
-> **Current phase:** Phase 9 · End-to-end testing and CI
+> **Current phase:** Phase 10 · Production deployment
 >
-> **Last completed step:** 57 · Add end-to-end happy-path test
+> **Last completed step:** 58 · Add CI quality pipeline
 >
-> **Current step:** 58 · Add CI quality pipeline
+> **Current step:** 59 · Containerize NestJS for production
 >
-> **Next step:** 59 · Containerize NestJS for production
+> **Next step:** 60 · Add production migration command
 
 ## What currently works
 
 - The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
+- GitHub Actions runs one fail-fast `Quality` job for pull requests and pushes to `main`, covering frozen dependency installation, formatting, linting, typechecking, unit tests, Testcontainers integration tests, deterministic Playwright E2E, and both application builds.
 - Playwright drives the real Next.js application through the primary species-search and place-search journeys against a deterministic public Nature Lens API fixture, including locally served MapLibre style data and explicit failure for unsupported fixture requests.
 - Global search stores its trimmed query in the URL, calls the Nature Lens API only for nonempty queries, and concurrently searches species and places through independently validated public contracts.
 - Species and place result groups preserve partial success: an unavailable source does not hide the other group, and successful empty results remain distinct from provider failures.
@@ -134,12 +135,14 @@
 - `NEXT_PUBLIC_API_BASE_URL` is public build-time configuration and must not contain secrets. The optional map style URL defaults to OpenFreeMap Liberty.
 - Browser E2E tests stop at the public Nature Lens API boundary: they run the real Next.js application while a small HTTP fixture supplies only the contracts required by the two primary journeys. Backend HTTP, PostgreSQL, and PostGIS behavior remains the responsibility of the integration suite.
 - E2E MapLibre initialization uses an empty local style, so browser-test success never depends on public map styles or tiles. E2E uses `.next-e2e` to avoid interfering with a concurrently running development server.
+- CI uses Node.js 22.22.3 and reads pnpm 12.4.1 from the root `packageManager` field. `actions/setup-node` caches only the pnpm store with `pnpm-lock.yaml` as the dependency key; build output, Playwright browsers, Testcontainers images, and `node_modules` are not cached.
+- The CI job supplies only non-secret local build configuration. Integration tests own their ephemeral PostGIS container and migrations, while E2E owns the local Next.js and fixture API processes.
 - No microservices, Redis, queues, GraphQL, background synchronization, or advanced GIS infrastructure are introduced without a concrete requirement.
 
 ## Known limitations / blockers
 
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
-- CI and production deployment are not configured.
+- Production deployment is not configured.
 - Observation and weather single-flight registries are process-local. Multiple API replicas could each refresh the same key concurrently; distributed coordination is not justified for the current single-process MVP.
 - Cross-provider grouping currently recognizes only the official GBIF-published iNaturalist dataset. Other provider relationships remain separate unless a future step adds another equally strong identity rule.
 - Paginated synchronization remains provider-page based. The public paginated response continues to describe the primary iNaturalist page, while the spatial read combines locally synchronized provider records.
@@ -186,17 +189,19 @@ Install the Playwright Chromium runtime once with `pnpm --filter web exec playwr
 
 ## Verification
 
-- `pnpm format:check`: passed after step 57.
-- `pnpm lint`: passed after step 57.
-- `pnpm typecheck`: passed after step 57.
+- The CI workflow passed YAML parsing and focused Prettier validation after step 58; its first hosted GitHub Actions execution awaits the next push or pull request.
+- `pnpm format:check`: passed after step 58.
+- `pnpm lint`: passed after step 58.
+- `pnpm typecheck`: passed after step 58.
 - `pnpm test:e2e`: passed both primary browser journeys after step 57 using Chromium, the real Next.js application, the deterministic API fixture, and the local map style.
-- `pnpm --filter api test`: passed all 312 API unit tests after step 56.
-- `pnpm --filter web test`: passed all 8 frontend unit tests after step 54.
+- `pnpm test`: passed all 312 API and 8 frontend unit tests after step 58.
 - `pnpm test:integration`: passed all 16 API integration tests after step 56 against ephemeral migrated PostgreSQL/PostGIS databases.
-- The API production build passed after step 54.
+- The step 58 integration recheck could not start because the agent session had no available container runtime; the GitHub-hosted runner provides Docker for the unchanged Testcontainers suite.
+- The step 58 E2E recheck could not bind its local fixture port in the agent sandbox; the same unchanged two-test suite passed after step 57.
+- The API production build passed after step 58.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
-- `git diff --check`: passed after step 57.
-- Step 57 Definition of Done is satisfied at the current project boundary: both primary journeys pass locally and the Playwright configuration is CI-ready; executing them in CI is intentionally part of step 58.
+- `git diff --check`: passed after step 58.
+- Step 58 Definition of Done is satisfied at the repository-configuration boundary: pull requests receive one `Quality` job containing every agreed quality phase, with the first hosted execution pending the next push or pull request.
