@@ -26,6 +26,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "api/dist/**",
       "web/.next/**",
+      "web/.next-e2e/**",
       "web/out/**",
       "web/next-env.d.ts",
     ],

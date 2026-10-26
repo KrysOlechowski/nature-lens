@@ -2,19 +2,20 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Critical API search, synchronization, and spatial-read flows have HTTP-level integration coverage against PostgreSQL/PostGIS
+> **Status:** Primary species and place journeys have deterministic browser-level end-to-end coverage
 >
 > **Current phase:** Phase 9 · End-to-end testing and CI
 >
-> **Last completed step:** 56 · Expand API integration tests
+> **Last completed step:** 57 · Add end-to-end happy-path test
 >
-> **Current step:** 57 · Add end-to-end happy-path test
+> **Current step:** 58 · Add CI quality pipeline
 >
-> **Next step:** 58 · Add CI quality pipeline
+> **Next step:** 59 · Containerize NestJS for production
 
 ## What currently works
 
 - The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
+- Playwright drives the real Next.js application through the primary species-search and place-search journeys against a deterministic public Nature Lens API fixture, including locally served MapLibre style data and explicit failure for unsupported fixture requests.
 - Global search stores its trimmed query in the URL, calls the Nature Lens API only for nonempty queries, and concurrently searches species and places through independently validated public contracts.
 - Species and place result groups preserve partial success: an unavailable source does not hide the other group, and successful empty results remain distinct from provider failures.
 - Place results open server-rendered `/places/[id]/[slug]` pages that resolve opaque IDs through the API, distinguish missing places from provider failures, and show an interactive map fitted to the provider bbox or centered on the provider point.
@@ -131,11 +132,12 @@
 - Place mapping uses a dedicated Client Component rather than extending the species map. Reliable provider extents set the initial view with `fitBounds`; places without one use their representative center and a bounded fallback zoom, while observation selection always follows the actual viewport.
 - Place weather is a separate server-rendered section with its own Suspense boundary and unavailable state. It represents the provider model cell for the place center, not conditions across the full place extent.
 - `NEXT_PUBLIC_API_BASE_URL` is public build-time configuration and must not contain secrets. The optional map style URL defaults to OpenFreeMap Liberty.
+- Browser E2E tests stop at the public Nature Lens API boundary: they run the real Next.js application while a small HTTP fixture supplies only the contracts required by the two primary journeys. Backend HTTP, PostgreSQL, and PostGIS behavior remains the responsibility of the integration suite.
+- E2E MapLibre initialization uses an empty local style, so browser-test success never depends on public map styles or tiles. E2E uses `.next-e2e` to avoid interfering with a concurrently running development server.
 - No microservices, Redis, queues, GraphQL, background synchronization, or advanced GIS infrastructure are introduced without a concrete requirement.
 
 ## Known limitations / blockers
 
-- End-to-end browser tests are not configured yet.
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
 - CI and production deployment are not configured.
 - Observation and weather single-flight registries are process-local. Multiple API replicas could each refresh the same key concurrently; distributed coordination is not justified for the current single-process MVP.
@@ -167,6 +169,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm test:integration
+pnpm test:e2e
 pnpm build
 
 pnpm db:migrate
@@ -179,13 +182,14 @@ pnpm --filter web start
 pnpm --filter api start
 ```
 
-Run development servers in separate terminals. The frontend defaults to http://localhost:3000 and the API to http://localhost:3001. Build an application before starting its production server.
+Install the Playwright Chromium runtime once with `pnpm --filter web exec playwright install chromium`. Run development servers in separate terminals. The frontend defaults to http://localhost:3000 and the API to http://localhost:3001. Build an application before starting its production server.
 
 ## Verification
 
-- `pnpm format:check`: passed for the step 56 changed files.
-- `pnpm exec eslint api`: passed after step 56.
-- `pnpm --filter api typecheck`: passed after step 56.
+- `pnpm format:check`: passed after step 57.
+- `pnpm lint`: passed after step 57.
+- `pnpm typecheck`: passed after step 57.
+- `pnpm test:e2e`: passed both primary browser journeys after step 57 using Chromium, the real Next.js application, the deterministic API fixture, and the local map style.
 - `pnpm --filter api test`: passed all 312 API unit tests after step 56.
 - `pnpm --filter web test`: passed all 8 frontend unit tests after step 54.
 - `pnpm test:integration`: passed all 16 API integration tests after step 56 against ephemeral migrated PostgreSQL/PostGIS databases.
@@ -194,5 +198,5 @@ Run development servers in separate terminals. The frontend defaults to http://l
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
-- `git diff --check`: passed after step 56.
-- Step 56 Definition of Done is satisfied: the critical search, synchronization, and bbox API flow works through real controllers, services, repositories, migrations, and PostgreSQL/PostGIS while only external providers are stubbed.
+- `git diff --check`: passed after step 57.
+- Step 57 Definition of Done is satisfied at the current project boundary: both primary journeys pass locally and the Playwright configuration is CI-ready; executing them in CI is intentionally part of step 58.
