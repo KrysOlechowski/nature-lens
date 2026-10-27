@@ -2,19 +2,20 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** Pull requests and main-branch changes have one automated application quality gate
+> **Status:** The production API image builds reproducibly and passes a local container smoke test
 >
 > **Current phase:** Phase 10 · Production deployment
 >
-> **Last completed step:** 58 · Add CI quality pipeline
+> **Last completed step:** 59 · Containerize NestJS for production
 >
-> **Current step:** 59 · Containerize NestJS for production
+> **Current step:** 🔵 Manual setup · Production Supabase
 >
 > **Next step:** 60 · Add production migration command
 
 ## What currently works
 
 - The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
+- The NestJS API has a reproducible multi-stage production image built from the workspace root, with production-only runtime dependencies, a non-root process, runtime-only configuration, and a Docker health check against `/api/health`.
 - GitHub Actions runs one fail-fast `Quality` job for pull requests and pushes to `main`, covering frozen dependency installation, formatting, linting, typechecking, unit tests, Testcontainers integration tests, deterministic Playwright E2E, and both application builds.
 - Playwright drives the real Next.js application through the primary species-search and place-search journeys against a deterministic public Nature Lens API fixture, including locally served MapLibre style data and explicit failure for unsupported fixture requests.
 - Global search stores its trimmed query in the URL, calls the Nature Lens API only for nonempty queries, and concurrently searches species and places through independently validated public contracts.
@@ -137,6 +138,8 @@
 - E2E MapLibre initialization uses an empty local style, so browser-test success never depends on public map styles or tiles. E2E uses `.next-e2e` to avoid interfering with a concurrently running development server.
 - CI uses Node.js 22.22.3 and reads pnpm 12.4.1 from the root `packageManager` field. `actions/setup-node` caches only the pnpm store with `pnpm-lock.yaml` as the dependency key; build output, Playwright browsers, Testcontainers images, and `node_modules` are not cached.
 - The CI job supplies only non-secret local build configuration. Integration tests own their ephemeral PostGIS container and migrations, while E2E owns the local Next.js and fixture API processes.
+- The production API image uses the same pinned Node.js 22.22.3 and pnpm 12.4.1 toolchain as the repository. Build dependencies remain in intermediate stages; the runtime image contains only the compiled API and production dependencies on Debian Bookworm slim.
+- Production container configuration is supplied only at runtime. The API runs directly as PID 1 under the image's non-root `node` user, listens on the runtime `PORT`, and uses `/api/health` for a Node-based Docker health check without adding a separate HTTP client.
 - No microservices, Redis, queues, GraphQL, background synchronization, or advanced GIS infrastructure are introduced without a concrete requirement.
 
 ## Known limitations / blockers
@@ -183,6 +186,9 @@ pnpm dev:web
 pnpm dev:api
 pnpm --filter web start
 pnpm --filter api start
+
+docker build -f api/Dockerfile -t nature-lens-api .
+docker run --rm --env-file api/.env -p 3001:3001 nature-lens-api
 ```
 
 Install the Playwright Chromium runtime once with `pnpm --filter web exec playwright install chromium`. Run development servers in separate terminals. The frontend defaults to http://localhost:3000 and the API to http://localhost:3001. Build an application before starting its production server.
@@ -190,7 +196,10 @@ Install the Playwright Chromium runtime once with `pnpm --filter web exec playwr
 ## Verification
 
 - The CI workflow passed YAML parsing and focused Prettier validation after step 58; its first hosted GitHub Actions execution awaits the next push or pull request.
-- `pnpm format:check`: passed after step 58.
+- The step 59 production API image built successfully from scratch with `--no-cache`, the frozen workspace lockfile, Node.js 22.22.3, and pnpm 12.4.1.
+- The step 59 container started from runtime-provided environment configuration, connected to PostgreSQL, returned `200` from `/api/health`, reached Docker health status `healthy`, and stopped gracefully with exit code 0.
+- The step 59 runtime inspection confirmed PID 1 is the Node API process running as UID 1000, `NODE_ENV=production` is set, and `/app` contains only `dist`, `node_modules`, and `package.json`. Local environment files, TypeScript sources, tests, migrations, build tools, and development dependencies are absent.
+- `pnpm format:check`: passed after step 59.
 - `pnpm lint`: passed after step 58.
 - `pnpm typecheck`: passed after step 58.
 - `pnpm test:e2e`: passed both primary browser journeys after step 57 using Chromium, the real Next.js application, the deterministic API fixture, and the local map style.
@@ -203,5 +212,5 @@ Install the Playwright Chromium runtime once with `pnpm --filter web exec playwr
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
-- `git diff --check`: passed after step 58.
-- Step 58 Definition of Done is satisfied at the repository-configuration boundary: pull requests receive one `Quality` job containing every agreed quality phase, with the first hosted execution pending the next push or pull request.
+- `git diff --check`: passed after step 59.
+- Step 59 Definition of Done is satisfied: the API runs locally from the production image and passes the configured health check.
