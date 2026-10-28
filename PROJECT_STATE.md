@@ -2,20 +2,21 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** The production API image builds reproducibly and passes a local container smoke test
+> **Status:** The production database can be prepared from repository migrations before deploying the API
 >
 > **Current phase:** Phase 10 · Production deployment
 >
-> **Last completed step:** 59 · Containerize NestJS for production
+> **Last completed step:** 60 · Add production migration command
 >
-> **Current step:** 🔵 Manual setup · Production Supabase
+> **Current step:** 🔵 Manual setup · Railway API service
 >
-> **Next step:** 60 · Add production migration command
+> **Next step:** 61 · Add production API configuration
 
 ## What currently works
 
 - The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
 - The NestJS API has a reproducible multi-stage production image built from the workspace root, with production-only runtime dependencies, a non-root process, runtime-only configuration, and a Docker health check against `/api/health`.
+- A forward-only production migration command prepares an empty database from repository migrations before API deployment, using a migration-only connection secret, one transaction, order checks, and an advisory lock.
 - GitHub Actions runs one fail-fast `Quality` job for pull requests and pushes to `main`, covering frozen dependency installation, formatting, linting, typechecking, unit tests, Testcontainers integration tests, deterministic Playwright E2E, and both application builds.
 - Playwright drives the real Next.js application through the primary species-search and place-search journeys against a deterministic public Nature Lens API fixture, including locally served MapLibre style data and explicit failure for unsupported fixture requests.
 - Global search stores its trimmed query in the URL, calls the Nature Lens API only for nonempty queries, and concurrently searches species and places through independently validated public contracts.
@@ -65,7 +66,8 @@
 
 ## Persistence snapshot
 
-- Database schema is versioned with `node-pg-migrate` TypeScript migrations in `api/migrations`; migrations run explicitly rather than during API startup.
+- Database schema is versioned with `node-pg-migrate` TypeScript migrations in `api/migrations`; local migrations load `DATABASE_URL` from `api/.env`, while production migrations require an explicitly injected `MIGRATION_DATABASE_URL` and run before API deployment.
+- The production Supabase project is configured separately from development, with its unused Data API disabled and incoming database connections requiring SSL.
 - Local development uses the Supabase Session pooler for IPv4 compatibility. Its connection string remains in the ignored `api/.env` file.
 - PostGIS is installed in the dedicated `extensions` schema, and spatial functions and operators are schema-qualified.
 - `species` stores application-owned identities without treating a scientific name as unique. `species_provider_mappings` keeps provider-specific external IDs and compact identity-resolution audit context outside the core species model.
@@ -140,6 +142,7 @@
 - The CI job supplies only non-secret local build configuration. Integration tests own their ephemeral PostGIS container and migrations, while E2E owns the local Next.js and fixture API processes.
 - The production API image uses the same pinned Node.js 22.22.3 and pnpm 12.4.1 toolchain as the repository. Build dependencies remain in intermediate stages; the runtime image contains only the compiled API and production dependencies on Debian Bookworm slim.
 - Production container configuration is supplied only at runtime. The API runs directly as PID 1 under the image's non-root `node` user, listens on the runtime `PORT`, and uses `/api/health` for a Node-based Docker health check without adding a separate HTTP client.
+- Production migrations are forward-only and separate from API startup. They use a direct PostgreSQL connection where IPv6 is available, may use the IPv4 session pooler otherwise, and fail immediately when another migration process holds the advisory lock.
 - No microservices, Redis, queues, GraphQL, background synchronization, or advanced GIS infrastructure are introduced without a concrete requirement.
 
 ## Known limitations / blockers
@@ -179,6 +182,7 @@ pnpm test:e2e
 pnpm build
 
 pnpm db:migrate
+pnpm db:migrate:production # requires MIGRATION_DATABASE_URL in the process environment
 pnpm db:migrate:create migration-name
 pnpm db:migrate:down
 
@@ -195,6 +199,9 @@ Install the Playwright Chromium runtime once with `pnpm --filter web exec playwr
 
 ## Verification
 
+- The step 60 production command applied all 10 repository migrations to an empty PostgreSQL/PostGIS database, placed PostGIS in the `extensions` schema, created all expected application tables, and completed a second run with no pending migrations.
+- The step 60 production command failed before connecting when `MIGRATION_DATABASE_URL` was absent, confirming that it does not fall back to local `api/.env` configuration.
+- Focused Prettier validation passed for the step 60 package scripts and migration documentation.
 - The CI workflow passed YAML parsing and focused Prettier validation after step 58; its first hosted GitHub Actions execution awaits the next push or pull request.
 - The step 59 production API image built successfully from scratch with `--no-cache`, the frozen workspace lockfile, Node.js 22.22.3, and pnpm 12.4.1.
 - The step 59 container started from runtime-provided environment configuration, connected to PostgreSQL, returned `200` from `/api/health`, reached Docker health status `healthy`, and stopped gracefully with exit code 0.

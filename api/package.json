@@ -7,6 +7,7 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "db:migrate": "node-pg-migrate up --envPath .env --migrations-dir migrations",
+    "db:migrate:production": "node-pg-migrate up --database-url-var MIGRATION_DATABASE_URL --migrations-dir migrations --check-order --single-transaction --lock --advisory-lock-mode fail",
     "db:migrate:create": "node-pg-migrate create --migrations-dir migrations --migration-file-language ts --migration-filename-format utc",
     "db:migrate:down": "node-pg-migrate down --envPath .env --migrations-dir migrations",
     "start": "node --enable-source-maps dist/main.js",

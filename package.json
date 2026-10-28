@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm --filter web --filter api build",
     "db:migrate": "pnpm --filter api db:migrate",
+    "db:migrate:production": "pnpm --filter api db:migrate:production",
     "db:migrate:create": "pnpm --filter api db:migrate:create",
     "db:migrate:down": "pnpm --filter api db:migrate:down",
     "dev:api": "pnpm --filter api dev",
