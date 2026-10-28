@@ -344,7 +344,7 @@ cp api/.env.example api/.env
 
 Replace the placeholder `DATABASE_URL` in `api/.env` with the connection string for the development Supabase project. Keep this value local: it contains database credentials and must never be committed.
 
-The frontend requires `NEXT_PUBLIC_API_BASE_URL`, which is exposed to browser code and therefore must never contain a secret. `NEXT_PUBLIC_MAP_STYLE_URL` optionally selects the public MapLibre style and defaults to OpenFreeMap Liberty. Next.js embeds public environment values into the client bundle at build time. The API requires the server-only `PORT`, `WEB_ORIGIN`, and `DATABASE_URL` values. `WEB_ORIGIN` must be the exact frontend origin, without a path; the API permits browser `GET` requests from that origin without credentials. `DATABASE_POOL_MAX` controls the maximum number of PostgreSQL connections held by one API process and defaults to `5`. `OBSERVATION_FRESHNESS_WINDOW_SECONDS` controls how long an exact persisted observation page can be served without refreshing it from the provider and defaults to one hour. Both applications validate their configuration before starting; missing values and invalid configuration produce an immediate error.
+The frontend requires `NEXT_PUBLIC_API_BASE_URL`, which is exposed to browser code and therefore must never contain a secret. It identifies the public API origin, such as `https://nature-lens-api.onrender.com`, without the `/api` route prefix. `NEXT_PUBLIC_MAP_STYLE_URL` optionally selects the public MapLibre style and defaults to OpenFreeMap Liberty. Next.js embeds public environment values into the client bundle at build time. The API requires the server-only `PORT`, `WEB_ORIGIN`, and `DATABASE_URL` values. `WEB_ORIGIN` must be the exact frontend origin, without a path; the API permits browser `GET` requests from that origin without credentials. `TRUST_PROXY` defaults to `false` and must be enabled only when the application is behind a trusted platform proxy that supplies the client address, such as Render. `DATABASE_POOL_MAX` controls the maximum number of PostgreSQL connections held by one API process and defaults to `5`. `OBSERVATION_FRESHNESS_WINDOW_SECONDS` controls how long an exact persisted observation page can be served without refreshing it from the provider and defaults to one hour. Both applications validate their configuration before starting; missing values and invalid configuration produce an immediate error.
 
 Start the frontend from the repository root:
 
@@ -386,6 +386,12 @@ pnpm --filter api start
 ```
 
 `dev:api` recompiles and restarts the backend when source files change. `start` runs the compiled application, so run `build` first.
+
+### Production API runtime
+
+The production API runs on Render from `api/Dockerfile`. Render supplies the runtime port, terminates public TLS, and forwards the original client address through its proxy. Set `TRUST_PROXY=true` for that service so Express and the API throttler use the forwarded client address; keep the default `false` when the API is reached directly. Keep `WEB_ORIGIN` restricted to the exact production Vercel origin and use the production Supabase connection only in the server-side `DATABASE_URL`.
+
+The public API base URL is the HTTPS origin without a path or trailing `/api`, for example `https://nature-lens-api.onrender.com`. API routes retain the application-owned `/api` prefix, including `/api/health`.
 
 Apply pending database migrations before starting a freshly configured environment:
 

@@ -5,6 +5,10 @@ config({ quiet: true });
 
 const environmentObjectSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535),
+  TRUST_PROXY: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   WEB_ORIGIN: z
     .url({ protocol: /^https?$/ })
     .refine(
