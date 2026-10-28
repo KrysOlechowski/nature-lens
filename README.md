@@ -135,7 +135,7 @@ No giant GIS platform hiding inside a portfolio project.
 | ⚙️ **Backend**    | Node.js, NestJS, REST API                              |
 | 🐘 **Data**       | PostgreSQL, PostGIS, Supabase                          |
 | 🗺️ **Maps**       | MapLibre, GeoJSON, spatial queries                     |
-| ☁️ **Deployment** | Vercel, Railway, Supabase                              |
+| ☁️ **Deployment** | Vercel, Render, Supabase                               |
 
 ---
 

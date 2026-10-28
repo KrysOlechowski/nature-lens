@@ -773,14 +773,14 @@ flowchart LR
     User["👤 Browser"]
 
     Vercel["▲ Vercel\nNext.js"]
-    Railway["🚂 Railway\nNestJS"]
+    Render["◼ Render\nNestJS"]
     Supabase["🐘 Supabase\nPostgreSQL + PostGIS"]
     Providers["🌐 External APIs"]
 
     User --> Vercel
-    Vercel --> Railway
-    Railway --> Supabase
-    Railway --> Providers
+    Vercel --> Render
+    Render --> Supabase
+    Render --> Providers
 ```
 
 Expected responsibilities:
@@ -791,7 +791,7 @@ Expected responsibilities:
 - frontend environment configuration,
 - frontend deployment previews.
 
-### Railway
+### Render
 
 - NestJS API,
 - backend environment variables,

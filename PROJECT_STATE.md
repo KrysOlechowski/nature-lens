@@ -8,7 +8,7 @@
 >
 > **Last completed step:** 60 · Add production migration command
 >
-> **Current step:** 🔵 Manual setup · Railway API service
+> **Current step:** 🔵 Manual setup · Render API service
 >
 > **Next step:** 61 · Add production API configuration
 

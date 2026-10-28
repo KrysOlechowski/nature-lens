@@ -24,7 +24,7 @@ The user should **not need to paste the current step manually into every Codex s
 - **One implementation step = one logical commit** by default.
 - A commit should add one coherent change and leave the repository in a working state.
 - If a step turns out to be too large, split it instead of forcing unrelated work into one commit.
-- Actions performed only in Supabase, Railway, Vercel, or another external dashboard are marked as **🔵 Manual setup** and do not require artificial commits.
+- Actions performed only in Supabase, Render, Vercel, or another external dashboard are marked as **🔵 Manual setup** and do not require artificial commits.
 - Before meaningful technical changes, discuss the problem, decision, and trade-offs before implementation.
 - After each implementation step, run checks appropriate to the current stage.
 - Work only on the **current** plan item. Do not implement future roadmap items opportunistically.
@@ -1453,7 +1453,7 @@ Run migrations rather than manually recreating the development schema.
 
 ---
 
-## 🔵 Manual setup · Railway API service
+## 🔵 Manual setup · Render API service
 
 Connect the repository.
 
@@ -1499,7 +1499,7 @@ Keep secrets on the server/API side.
 - metadata,
 - production-safe fetch configuration.
 
-**Definition of Done:** the Vercel build succeeds and the site communicates with the Railway API.
+**Definition of Done:** the Vercel build succeeds and the site communicates with the Render API.
 
 **Commit:** `chore(web): configure production deployment`
 
