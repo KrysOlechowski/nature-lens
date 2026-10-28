@@ -2,21 +2,21 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** The production API is live on Render and responds on `/api/health`
+> **Status:** The production API runtime is configured and verified on Render
 >
 > **Current phase:** Phase 10 · Production deployment
 >
-> **Last completed step:** 60 · Add production migration command
+> **Last completed step:** 61 · Add production API configuration
 >
-> **Current step:** 61 · Add production API configuration
+> **Current step:** 🔵 Manual setup · Vercel web project
 >
-> **Next step:** 🔵 Manual setup · Vercel web project
+> **Next step:** 62 · Add production web configuration
 
 ## What currently works
 
 - The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
 - The NestJS API has a reproducible multi-stage production image built from the workspace root, with production-only runtime dependencies, a non-root process, runtime-only configuration, and a Docker health check against `/api/health`.
-- The production API image is deployed on Render, connects to the production Supabase session pooler over SSL, and exposes a public `/api/health` endpoint that returns the expected versioned response.
+- The production API image is deployed on Render, connects to the migrated production Supabase database over SSL, and serves verified health, species-search, and place-search endpoints.
 - A forward-only production migration command prepares an empty database from repository migrations before API deployment, using a migration-only connection secret, one transaction, order checks, and an advisory lock.
 - GitHub Actions runs one fail-fast `Quality` job for pull requests and pushes to `main`, covering frozen dependency installation, formatting, linting, typechecking, unit tests, Testcontainers integration tests, deterministic Playwright E2E, and both application builds.
 - Playwright drives the real Next.js application through the primary species-search and place-search journeys against a deterministic public Nature Lens API fixture, including locally served MapLibre style data and explicit failure for unsupported fixture requests.
@@ -143,13 +143,14 @@
 - The CI job supplies only non-secret local build configuration. Integration tests own their ephemeral PostGIS container and migrations, while E2E owns the local Next.js and fixture API processes.
 - The production API image uses the same pinned Node.js 22.22.3 and pnpm 12.4.1 toolchain as the repository. Build dependencies remain in intermediate stages; the runtime image contains only the compiled API and production dependencies on Debian Bookworm slim.
 - Production container configuration is supplied only at runtime. The API runs directly as PID 1 under the image's non-root `node` user, listens on the runtime `PORT`, and uses `/api/health` for a Node-based Docker health check without adding a separate HTTP client.
+- Proxy trust is disabled by default and enabled explicitly on Render so Express and the API throttler use the platform-provided client address instead of grouping public traffic under the reverse proxy address.
 - Production migrations are forward-only and separate from API startup. They use a direct PostgreSQL connection where IPv6 is available, may use the IPv4 session pooler otherwise, and fail immediately when another migration process holds the advisory lock.
 - No microservices, Redis, queues, GraphQL, background synchronization, or advanced GIS infrastructure are introduced without a concrete requirement.
 
 ## Known limitations / blockers
 
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
-- Production API behavior beyond the health endpoint still requires step 61 verification and configuration, and the production web deployment is not configured yet.
+- The production web deployment is not configured yet, and the API `WEB_ORIGIN` remains temporary until Vercel assigns the production frontend origin.
 - Observation and weather single-flight registries are process-local. Multiple API replicas could each refresh the same key concurrently; distributed coordination is not justified for the current single-process MVP.
 - Cross-provider grouping currently recognizes only the official GBIF-published iNaturalist dataset. Other provider relationships remain separate unless a future step adds another equally strong identity rule.
 - Paginated synchronization remains provider-page based. The public paginated response continues to describe the primary iNaturalist page, while the spatial read combines locally synchronized provider records.
