@@ -2,21 +2,22 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** The production API runtime is configured and verified on Render
+> **Status:** The production web runtime is configured and verified on Vercel
 >
 > **Current phase:** Phase 10 · Production deployment
 >
-> **Last completed step:** 61 · Add production API configuration
+> **Last completed step:** 62 · Add production web configuration
 >
-> **Current step:** 🔵 Manual setup · Vercel web project
+> **Current step:** 63 · Add post-deploy smoke test
 >
-> **Next step:** 62 · Add production web configuration
+> **Next step:** 64 · Document architecture and production runbook
 
 ## What currently works
 
 - The pnpm workspace contains the Next.js 16 `web` application and NestJS 12 `api` application, with shared root commands for formatting, linting, typechecking, testing, and building.
 - The NestJS API has a reproducible multi-stage production image built from the workspace root, with production-only runtime dependencies, a non-root process, runtime-only configuration, and a Docker health check against `/api/health`.
 - The production API image is deployed on Render, connects to the migrated production Supabase database over SSL, and serves verified health, species-search, and place-search endpoints.
+- The production Next.js application is deployed at `https://nature-lens-poland.vercel.app`, communicates with the Render API from server and browser contexts, and exposes a stable canonical home URL from Vercel's project production hostname.
 - A forward-only production migration command prepares an empty database from repository migrations before API deployment, using a migration-only connection secret, one transaction, order checks, and an advisory lock.
 - GitHub Actions runs one fail-fast `Quality` job for pull requests and pushes to `main`, covering frozen dependency installation, formatting, linting, typechecking, unit tests, Testcontainers integration tests, deterministic Playwright E2E, and both application builds.
 - Playwright drives the real Next.js application through the primary species-search and place-search journeys against a deterministic public Nature Lens API fixture, including locally served MapLibre style data and explicit failure for unsupported fixture requests.
@@ -137,6 +138,8 @@
 - Place mapping uses a dedicated Client Component rather than extending the species map. Reliable provider extents set the initial view with `fitBounds`; places without one use their representative center and a bounded fallback zoom, while observation selection always follows the actual viewport.
 - Place weather is a separate server-rendered section with its own Suspense boundary and unavailable state. It represents the provider model cell for the place center, not conditions across the full place extent.
 - `NEXT_PUBLIC_API_BASE_URL` is public build-time configuration and must not contain secrets. The optional map style URL defaults to OpenFreeMap Liberty.
+- `VERCEL_PROJECT_PRODUCTION_URL` is optional outside Vercel and provides the protocol-free stable production hostname for server-owned metadata. The application adds `https://`, uses it as `metadataBase` and the home-page canonical URL, and never uses deployment-specific `VERCEL_URL` or a public site-URL variable for this purpose.
+- The root route tree has a Client Component error boundary with a generic retry action. It never renders raw error messages, digests, provider payloads, or stack traces, while existing section-level degraded-mode states remain responsible for expected partial failures.
 - Browser E2E tests stop at the public Nature Lens API boundary: they run the real Next.js application while a small HTTP fixture supplies only the contracts required by the two primary journeys. Backend HTTP, PostgreSQL, and PostGIS behavior remains the responsibility of the integration suite.
 - E2E MapLibre initialization uses an empty local style, so browser-test success never depends on public map styles or tiles. E2E uses `.next-e2e` to avoid interfering with a concurrently running development server.
 - CI uses Node.js 22.22.3 and reads pnpm 12.4.1 from the root `packageManager` field. `actions/setup-node` caches only the pnpm store with `pnpm-lock.yaml` as the dependency key; build output, Playwright browsers, Testcontainers images, and `node_modules` are not cached.
@@ -150,7 +153,7 @@
 ## Known limitations / blockers
 
 - Persistence integration tests require a running Docker-compatible container runtime and may need to download the PostGIS image.
-- The production web deployment is not configured yet, and the API `WEB_ORIGIN` remains temporary until Vercel assigns the production frontend origin.
+- Browser API access is restricted to the exact production origin `https://nature-lens-poland.vercel.app`. Preview deployments can build and server-render against the production API, but direct browser map refreshes require a deliberate future CORS policy if previews need full interaction.
 - Observation and weather single-flight registries are process-local. Multiple API replicas could each refresh the same key concurrently; distributed coordination is not justified for the current single-process MVP.
 - Cross-provider grouping currently recognizes only the official GBIF-published iNaturalist dataset. Other provider relationships remain separate unless a future step adds another equally strong identity rule.
 - Paginated synchronization remains provider-page based. The public paginated response continues to describe the primary iNaturalist page, while the spatial read combines locally synchronized provider records.
@@ -218,8 +221,14 @@ Install the Playwright Chromium runtime once with `pnpm --filter web exec playwr
 - The step 58 E2E recheck could not bind its local fixture port in the agent sandbox; the same unchanged two-test suite passed after step 57.
 - The API production build passed after step 58.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
+- The step 62 Vercel production build succeeded from commit `d69bc08` and serves the application at `https://nature-lens-poland.vercel.app`.
+- The production home page exposes `Nature Lens` application metadata and the canonical URL `https://nature-lens-poland.vercel.app`, derived from `VERCEL_PROJECT_PRODUCTION_URL`.
+- A live production species page rendered persisted details, observations, seasonality, and its MapLibre map through the Render API. Zooming into the client-refresh range completed without a CORS or refresh error, and the API returned `Access-Control-Allow-Origin: https://nature-lens-poland.vercel.app`.
+- The application error fallback test confirms that raw messages and digests remain hidden and that the retry button invokes `reset()`.
+- Step 62 checks passed: repository format check, lint, 9 frontend unit tests, frontend typecheck, and `git diff --check`. The local build hit the existing sandbox-only Turbopack port restriction twice; the subsequent Vercel production build passed.
 - A policy-compliant live Nominatim smoke request returned Puszcza Niepołomicka as OSM relation `61493` with a center and provider bounding box.
 - A live Open-Meteo smoke request for Warsaw returned the expected Unix validity time and metric current-condition units used by the adapter contract.
 - A live GDOŚ WFS request for Warsaw returned valid Polygon and MultiPolygon features across five requested layer categories. Presentation simplification reduced the sample from 124,050 to 18,807 positions and from about 4.8 MB to 0.73 MB without removing any of its ten features.
 - `git diff --check`: passed after step 59.
 - Step 59 Definition of Done is satisfied: the API runs locally from the production image and passes the configured health check.
+- Step 62 Definition of Done is satisfied: the Vercel build succeeds and the production site communicates with the Render API.
