@@ -2,15 +2,15 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** The production web runtime is configured and verified on Vercel
+> **Status:** The deployed production flow is covered by a fail-fast smoke check
 >
 > **Current phase:** Phase 10 · Production deployment
 >
-> **Last completed step:** 62 · Add production web configuration
+> **Last completed step:** 63 · Add post-deploy smoke test
 >
-> **Current step:** 63 · Add post-deploy smoke test
+> **Current step:** 64 · Document architecture and production runbook
 >
-> **Next step:** 64 · Document architecture and production runbook
+> **Next step:** 65 · Add BDL forestry adapter
 
 ## What currently works
 
@@ -18,6 +18,7 @@
 - The NestJS API has a reproducible multi-stage production image built from the workspace root, with production-only runtime dependencies, a non-root process, runtime-only configuration, and a Docker health check against `/api/health`.
 - The production API image is deployed on Render, connects to the migrated production Supabase database over SSL, and serves verified health, species-search, and place-search endpoints.
 - The production Next.js application is deployed at `https://nature-lens-poland.vercel.app`, communicates with the Render API from server and browser contexts, and exposes a stable canonical home URL from Vercel's project production hostname.
+- A dependency-free production smoke command verifies the server-rendered Vercel species-search flow against the configured API, then checks Render health, direct species search, idempotent observation synchronization, and a Poland-bounded PostGIS GeoJSON read using the application-owned species ID returned by production.
 - A forward-only production migration command prepares an empty database from repository migrations before API deployment, using a migration-only connection secret, one transaction, order checks, and an advisory lock.
 - GitHub Actions runs one fail-fast `Quality` job for pull requests and pushes to `main`, covering frozen dependency installation, formatting, linting, typechecking, unit tests, Testcontainers integration tests, deterministic Playwright E2E, and both application builds.
 - Playwright drives the real Next.js application through the primary species-search and place-search journeys against a deterministic public Nature Lens API fixture, including locally served MapLibre style data and explicit failure for unsupported fixture requests.
@@ -148,6 +149,7 @@
 - Production container configuration is supplied only at runtime. The API runs directly as PID 1 under the image's non-root `node` user, listens on the runtime `PORT`, and uses `/api/health` for a Node-based Docker health check without adding a separate HTTP client.
 - Proxy trust is disabled by default and enabled explicitly on Render so Express and the API throttler use the platform-provided client address instead of grouping public traffic under the reverse proxy address.
 - Production migrations are forward-only and separate from API startup. They use a direct PostgreSQL connection where IPv6 is available, may use the IPv4 session pooler otherwise, and fail immediately when another migration process holds the advisory lock.
+- The production smoke check uses Node.js built-in `fetch`, one timeout per sequential boundary, and no retries. `PRODUCTION_WEB_URL`, `PRODUCTION_API_URL`, `SMOKE_SPECIES_QUERY`, and the optional `SMOKE_TIMEOUT_MS` override make it reusable across deployments; observation synchronization follows normal cache, freshness, and stale-if-error behavior without a provider bypass.
 - No microservices, Redis, queues, GraphQL, background synchronization, or advanced GIS infrastructure are introduced without a concrete requirement.
 
 ## Known limitations / blockers
@@ -168,6 +170,7 @@
 - GDOŚ protected-area boundaries are display-only, may be incomplete when `truncated` is true, and are not suitable for legal or spatial-analysis decisions. Turf simplification reduces transfer size but does not promise topology-preserving generalization.
 - Node.js 23.3.0 cannot load a Nest CLI dependency. Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the complete toolchain.
 - The agent environment blocks local ports required by development servers and Turbopack CSS processing. The default frontend build must be verified in an unrestricted local environment.
+- A successful smoke run verifies the normal production observation flow but does not prove that an external biodiversity provider was contacted during that run; a fresh cache or stale-if-error fallback may serve synchronization safely.
 
 ## Development commands
 
@@ -185,6 +188,7 @@ pnpm test
 pnpm test:integration
 pnpm test:e2e
 pnpm build
+pnpm smoke:production
 
 pnpm db:migrate
 pnpm db:migrate:production # requires MIGRATION_DATABASE_URL in the process environment
@@ -211,13 +215,14 @@ Install the Playwright Chromium runtime once with `pnpm --filter web exec playwr
 - The step 59 production API image built successfully from scratch with `--no-cache`, the frozen workspace lockfile, Node.js 22.22.3, and pnpm 12.4.1.
 - The step 59 container started from runtime-provided environment configuration, connected to PostgreSQL, returned `200` from `/api/health`, reached Docker health status `healthy`, and stopped gracefully with exit code 0.
 - The step 59 runtime inspection confirmed PID 1 is the Node API process running as UID 1000, `NODE_ENV=production` is set, and `/app` contains only `dist`, `node_modules`, and `package.json`. Local environment files, TypeScript sources, tests, migrations, build tools, and development dependencies are absent.
-- `pnpm format:check`: passed after step 59.
-- `pnpm lint`: passed after step 58.
-- `pnpm typecheck`: passed after step 58.
+- `pnpm format:check`: passed after step 63.
+- `pnpm lint`: passed after step 63.
+- `pnpm typecheck`: passed after step 63.
 - `pnpm test:e2e`: passed both primary browser journeys after step 57 using Chromium, the real Next.js application, the deterministic API fixture, and the local map style.
 - `pnpm test`: passed all 312 API and 8 frontend unit tests after step 58.
 - `pnpm test:integration`: passed all 16 API integration tests after step 56 against ephemeral migrated PostgreSQL/PostGIS databases.
 - The step 58 integration recheck could not start because the agent session had no available container runtime; the GitHub-hosted runner provides Docker for the unchanged Testcontainers suite.
+- `pnpm smoke:production`: passed after step 63 against the deployed Vercel and Render applications, including `WEB`, `HEALTH`, `SPECIES_SEARCH`, `OBSERVATION_SYNC`, and `POSTGIS_BBOX`.
 - The step 58 E2E recheck could not bind its local fixture port in the agent sandbox; the same unchanged two-test suite passed after step 57.
 - The API production build passed after step 58.
 - The default frontend build reaches MapLibre CSS processing but cannot complete in the agent sandbox because Turbopack is denied permission to bind its required local port.
@@ -232,3 +237,4 @@ Install the Playwright Chromium runtime once with `pnpm --filter web exec playwr
 - `git diff --check`: passed after step 59.
 - Step 59 Definition of Done is satisfied: the API runs locally from the production image and passes the configured health check.
 - Step 62 Definition of Done is satisfied: the Vercel build succeeds and the production site communicates with the Render API.
+- Step 63 Definition of Done is satisfied: the smoke command fails fast across the deployed web, API, persistence, and normal provider-backed synchronization flow, while preserving cache and stale-if-error semantics.

@@ -48,5 +48,12 @@ export default tseslint.config(
     },
   },
   ...scopeConfigs(tseslint.configs.recommended, "api"),
+  {
+    ...eslint.configs.recommended,
+    files: [`scripts/**/*.${sourceExtensions}`],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
   prettier,
 );
