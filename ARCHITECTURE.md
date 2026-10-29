@@ -1,1012 +1,384 @@
-# 🏗️ Nature Lens Architecture
+# Nature Lens architecture
 
-> **Status:** evolving architecture  
-> **Scope:** current architectural direction, boundaries, and engineering decisions  
-> **Principle:** start simple, add complexity only when the product creates a real need
+> **Status:** deployed V1 architecture
+>
+> **Scope:** current system boundaries, data flows, operational behavior, and deliberate trade-offs
 
----
-
-## 🌲 Architecture at a glance
-
-Nature Lens is a Poland-focused application that aggregates real biodiversity, forestry, environmental, weather, and geospatial data from multiple public sources.
-
-The system is designed around two main product flows:
+Nature Lens is a Poland-focused application built around two questions:
 
 1. **Species → where and when was it observed in Poland?**
 2. **Place → what nature data and observations are available here?**
 
-The application starts as a **modular monolith** with a clear separation between:
+This document describes the implemented V1. Future integrations are listed separately and are not shown as current components.
 
-- the Next.js frontend,
-- the NestJS backend,
-- the PostgreSQL/PostGIS database,
-- external data providers.
+## Current architecture
 
-```mermaid
-flowchart TD
-    User["👤 User"]
-
-    subgraph Web["🖥️ Frontend"]
-        Next["Next.js"]
-        Map["MapLibre"]
-    end
-
-    subgraph Backend["⚙️ Nature Lens API"]
-        Controllers["Controllers"]
-        Services["Domain / application services"]
-        Adapters["Provider adapters"]
-        Persistence["Persistence layer"]
-    end
-
-    DB[("🐘 PostgreSQL + PostGIS")]
-
-    subgraph Providers["🌐 External providers"]
-        INat["iNaturalist"]
-        GBIF["GBIF"]
-        BDL["BDL"]
-        GDOS["GDOŚ"]
-        OSM["OpenStreetMap"]
-        Meteo["Open-Meteo"]
-        IMGW["IMGW"]
-    end
-
-    User --> Next
-    Next --> Map
-    Next --> Controllers
-    Controllers --> Services
-    Services --> Persistence
-    Persistence --> DB
-    Services --> Adapters
-
-    Adapters --> INat
-    Adapters --> GBIF
-    Adapters --> BDL
-    Adapters --> GDOS
-    Adapters --> OSM
-    Adapters --> Meteo
-    Adapters --> IMGW
-```
-
-This diagram represents the **direction of the system**, not a requirement to implement every provider immediately.
-
----
-
-## 🎯 Architectural goals
-
-The architecture should make it possible to:
-
-- integrate multiple heterogeneous public APIs,
-- keep provider-specific formats out of the rest of the application,
-- expose one consistent API to the frontend,
-- work effectively with geospatial data,
-- tolerate partial provider failures,
-- add caching and synchronization where they produce measurable value,
-- keep the first versions understandable and deployable,
-- support incremental development through small vertical slices.
-
-The architecture should **not** optimize prematurely for hypothetical scale.
-
----
-
-## 🧭 Core principles
-
-### 1. Build vertical slices
-
-New capabilities should preferably travel through the whole system:
-
-```text
-user interaction
-      ↓
-Next.js
-      ↓
-Nature Lens API
-      ↓
-domain/application logic
-      ↓
-provider and/or database
-      ↓
-response
-      ↓
-frontend
-```
-
-A small working feature is more valuable than several unfinished infrastructure layers.
-
----
-
-### 2. Keep provider contracts at the boundary
-
-External API response shapes must not become internal application models.
-
-Bad direction:
-
-```text
-iNaturalist response type
-        ↓
-controller
-        ↓
-frontend
-        ↓
-UI components
-```
-
-Preferred direction:
-
-```text
-external response
-       ↓
-runtime validation
-       ↓
-provider adapter
-       ↓
-normalization
-       ↓
-Nature Lens model
-       ↓
-application/domain logic
-```
-
-This limits the impact of:
-
-- provider contract changes,
-- inconsistent field names,
-- missing data,
-- different coordinate formats,
-- provider-specific identifiers,
-- replacing or combining providers later.
-
----
-
-### 3. The frontend primarily talks to our API
-
-The frontend should not become an orchestration layer for many external systems.
-
-Avoid:
-
-```text
-Next.js
-├── iNaturalist
-├── GBIF
-├── BDL
-├── GDOŚ
-├── IMGW
-└── Open-Meteo
-```
-
-Prefer:
-
-```text
-Next.js
-    ↓
-Nature Lens API
-    ↓
-providers + database
-```
-
-Benefits include:
-
-- one stable contract for the frontend,
-- centralized validation,
-- centralized error handling,
-- simpler caching,
-- easier provider replacement,
-- better control over rate limits,
-- clearer observability.
-
-A direct frontend-to-provider request may still be acceptable in the future if there is a concrete reason, but it should be an explicit exception.
-
----
-
-### 4. Prefer a modular monolith
-
-The NestJS backend starts as a **modular monolith**.
-
-Reasons:
-
-- the product is developed as one system,
-- the team is small,
-- deployment stays simple,
-- module boundaries are sufficient for current complexity,
-- transactions and shared persistence remain straightforward,
-- distributed-system complexity would provide little value at this stage.
-
-Microservices should not be introduced because they are fashionable or interview-friendly.
-
-They become worth discussing only if real boundaries emerge, such as:
-
-- independently scaling workloads,
-- long-running ingestion pipelines,
-- clearly separated ownership,
-- strong deployment independence,
-- materially different availability requirements.
-
----
-
-### 5. Prefer explicit boundaries over speculative abstractions
-
-Patterns should exist because they protect an actual boundary or solve a real problem.
-
-Good reasons for abstraction:
-
-- external provider differences,
-- persistence access,
-- runtime validation,
-- cross-cutting HTTP behavior,
-- repeated spatial-query logic.
-
-Poor reasons:
-
-- "we may need it someday",
-- making the project look more enterprise,
-- adding design patterns before there is variation.
-
----
-
-## 🖥️ Frontend architecture
-
-### Technology
-
-The frontend uses:
-
-- Next.js 16,
-- React,
-- TypeScript,
-- App Router,
-- Tailwind CSS,
-- shadcn/ui,
-- MapLibre.
-
-### Server Components first
-
-Server Components should remain the default where they fit naturally.
-
-Client Components are introduced where browser capabilities or interactivity require them, for example:
-
-- MapLibre,
-- map movement,
-- local interactive filters,
-- browser event handlers,
-- client-side state.
-
-The goal is not to maximize either Server or Client Components, but to place work at the correct boundary.
-
----
-
-### Data fetching
-
-The frontend should fetch data through the Nature Lens API.
-
-Different page sections may have different availability and latency characteristics.
-
-For example:
-
-```text
-Species header          ✓
-Observation summary     ✓
-Map                     loading...
-Seasonality             loading...
-Provider metadata       error
-```
-
-The UI should support **progressive loading** rather than waiting for every source to finish before rendering useful content.
-
----
-
-### Map architecture
-
-MapLibre is responsible for visualization and interaction.
-
-The frontend should not load an unlimited dataset and filter everything in the browser.
-
-As the project evolves, map queries should use concepts such as:
-
-- viewport bounding box,
-- zoom level,
-- date range,
-- selected species,
-- clustering,
-- server-side spatial filtering.
-
-A future map interaction may look like:
-
-```text
-user moves map
-      ↓
-move ends
-      ↓
-debounce / query decision
-      ↓
-bbox request
-      ↓
-PostGIS spatial query
-      ↓
-limited GeoJSON response
-      ↓
-MapLibre source update
-```
-
-Requests should not be fired for every pixel of map movement.
-
----
-
-## ⚙️ Backend architecture
-
-The backend uses Node.js and NestJS.
-
-A conceptual request path is:
-
-```text
-Controller
-    ↓
-Application / domain service
-    ↓
-Repository and/or provider adapter
-    ↓
-Database / external API
-```
-
-Controllers should remain thin.
-
-Their main responsibilities are:
-
-- HTTP input,
-- validation,
-- invoking application logic,
-- mapping results to the API response.
-
-Business decisions should not accumulate in controllers.
-
----
-
-## 📦 Backend modules
-
-The exact module structure should evolve with the product.
-
-Likely domain-oriented modules include:
-
-```text
-SpeciesModule
-ObservationsModule
-PlacesModule
-```
-
-Integration concerns may live in dedicated provider modules or infrastructure areas as needed.
-
-The first vertical slice should remain much smaller, for example:
-
-```text
-SpeciesModule
-└── SpeciesController
-└── SpeciesService
-└── INaturalistAdapter
-
-ObservationsModule
-└── ObservationsController
-└── ObservationsService
-```
-
-Do not create empty modules for future providers before they are needed.
-
----
-
-## 🔌 Provider adapters
-
-Each external provider should be isolated behind an adapter when its data enters application logic.
-
-Example:
-
-```text
-SpeciesService
-      ↓
-INaturalistAdapter
-      ↓
-iNaturalist API
-```
-
-A provider adapter is responsible for provider-specific concerns such as:
-
-- endpoint URLs,
-- query parameters,
-- authentication if required,
-- transport errors,
-- provider response validation,
-- mapping raw provider responses into small internal integration types.
-
-Application services should not need to understand the original provider payload.
-
----
-
-## 🛡️ Runtime validation
-
-TypeScript types alone do not validate data received over the network.
-
-External responses should therefore be validated at runtime at system boundaries.
-
-Conceptually:
-
-```text
-unknown JSON
-    ↓
-runtime schema validation
-    ↓
-validated provider DTO
-    ↓
-normalization
-```
-
-Only the subset of the provider response actually required by the application should be modeled.
-
-There is no benefit in reproducing a provider's entire API schema if the project uses ten fields.
-
----
-
-## 🔄 Normalization
-
-Nature Lens needs its own vocabulary and models.
-
-For example, iNaturalist and GBIF may describe the same conceptual observation differently.
-
-The normalization layer should resolve provider-specific differences before data reaches the rest of the application.
-
-Typical normalized concepts include:
-
-- species identity,
-- scientific name,
-- common/display name,
-- observation date,
-- provider,
-- external identifier,
-- coordinates,
-- location precision,
-- obscured/private location information,
-- source URL.
-
-Provider provenance must remain available after normalization.
-
-We should always be able to answer:
-
-> Where did this record come from?
-
-### Conservative observation deduplication
-
-Provider records remain separate persisted observations. Nature Lens groups them
-only when an exact canonical observation identity is available; similar dates,
-coordinates, or accuracy values are never sufficient.
-
-The currently supported cross-provider link is deliberately narrow: a GBIF
-record may share the `inaturalist:{observationId}` identity only when it belongs
-to the official iNaturalist GBIF dataset
-`50c9509d-22c7-4a22-a47d-8c48425ef4a7` and its `occurrenceID` exactly matches
-the canonical HTTPS iNaturalist observation URL. Every grouped result retains
-all original provider links and provenance.
-
-Spatial queries choose one representative before applying location filters.
-The direct iNaturalist record has priority over its GBIF copy, including when
-the iNaturalist record has no public point. Query limits, truncation metadata,
-and map cluster counts therefore describe deduplicated groups rather than raw
-provider records.
-
-Temporal aggregations use the same shared representative-selection rule as
-spatial reads, so maps and analyses cannot assign different identities to the
-same observation group. Calendar month and year come only from the preserved
-provider `observed_on` date. A timestamp is not converted into a calendar date
-because persistence does not retain enough source timezone context to prevent
-day, month, or year shifts. Groups without `observed_on` are reported as
-undated, and temporal aggregation includes locally synchronized groups without
-public coordinates.
-
----
-
-## 🐘 Persistence
-
-### PostgreSQL
-
-PostgreSQL is the main application database.
-
-It stores application-owned and normalized data.
-
-### PostGIS
-
-PostGIS extends PostgreSQL with geospatial capabilities.
-
-It should be used for real spatial problems such as:
-
-- observations inside a bounding box,
-- observations within a radius,
-- point-in-polygon queries,
-- spatial joins,
-- regional aggregation,
-- map viewport queries.
-
-Example:
-
-```text
-selected species
-      +
-current map bbox
-      ↓
-PostGIS
-      ↓
-matching observations
-```
-
----
-
-## 📍 Geospatial model
-
-Observation locations are expected to use WGS84 coordinates (`SRID 4326`).
-
-A conceptual observation record may include:
-
-```text
-Observation
-├── id
-├── speciesId
-├── provider
-├── externalId
-├── observedAt
-├── location: Point
-├── positionalAccuracy
-├── locationObscured
-└── sourceUrl
-```
-
-The exact schema should be introduced through migrations and adjusted based on real provider data.
-
----
-
-## 🔎 Spatial indexes
-
-Spatial queries should use appropriate spatial indexes when query patterns justify them.
-
-For observation points, a GiST index will likely be appropriate.
-
-Indexes should correspond to actual query patterns rather than being added blindly.
-
-Examples:
-
-- provider + external ID uniqueness,
-- species ID filtering,
-- observation date filtering,
-- spatial lookup on location.
-
----
-
-## 💾 What should be stored vs fetched live?
-
-This is an intentional architectural decision that will evolve as real usage becomes clear.
-
-Not every external response should automatically be persisted.
-
-Possible strategies include:
-
-### Fetch live
-
-Useful when:
-
-- data changes frequently,
-- requests are inexpensive,
-- provider availability is acceptable,
-- persistence adds little product value.
-
-### Persist locally
-
-Useful when:
-
-- spatial querying is required,
-- provider requests are expensive,
-- historical analysis is needed,
-- provider rate limits matter,
-- data must be combined across sources,
-- application availability should not depend entirely on the provider.
-
-### Hybrid
-
-Often the likely long-term direction:
-
-```text
-request
-   ↓
-local data available?
-   ├── yes → return / refresh if necessary
-   └── no  → provider → normalize → persist → return
-```
-
-The exact strategy should be chosen separately for each data type.
-
-Do not build a generic synchronization platform before the first real synchronization problem exists.
-
----
-
-## ⚡ Caching
-
-Caching is expected to become important, but it should be introduced at the layer where it solves a measured problem.
-
-Potential layers include:
-
-- Next.js data cache,
-- HTTP caching,
-- database-backed cached provider data,
-- in-memory backend cache,
-- Redis later if there is a concrete multi-instance or workload need.
-
-Redis is **not part of the initial architecture by default**.
-
----
-
-## 🌐 External HTTP communication
-
-External API calls should use a controlled backend HTTP layer.
-
-Cross-cutting concerns include:
-
-- timeout,
-- provider identification,
-- structured error mapping,
-- logging,
-- request duration,
-- retry where safe,
-- rate-limit handling.
-
-Retries must not be applied automatically to every failure.
-
-For example:
-
-- a transient `503` may be retryable,
-- malformed provider data is not,
-- a client-side validation error is not,
-- repeated retries against rate limiting may make the situation worse.
-
----
-
-## 🚦 Failure model
-
-External providers are assumed to fail sometimes.
-
-Possible failures include:
-
-- timeout,
-- `5xx`,
-- rate limit,
-- malformed payload,
-- changed API contract,
-- unavailable records,
-- partial data.
-
-The system should avoid turning every provider issue into a complete page failure.
-
-Conceptually:
-
-```text
-Page
-├── species overview      ✓
-├── observations          ✓
-├── weather               error
-└── protected areas       loading
-```
-
-Backend errors should be translated into stable application-level errors rather than leaking raw provider responses to the frontend.
-
----
-
-## 📊 Observability
-
-Observability should grow with the system.
-
-Useful future signals include:
-
-- API request duration,
-- provider request duration,
-- provider failure rate,
-- validation failures,
-- database query duration,
-- slow spatial queries,
-- cache hit rate,
-- synchronization failures.
-
-Logging should include enough context to answer questions such as:
-
-> Which provider failed?
-
-> For which operation?
-
-> Was the failure transport-related, validation-related, or application-related?
-
-Avoid logging sensitive data or unnecessary full provider payloads.
-
----
-
-## 🛡️ Nature-data safety
-
-Nature Lens works with real biodiversity observations.
-
-The application must preserve restrictions imposed by data providers.
-
-If a provider:
-
-- obscures coordinates,
-- reduces precision,
-- hides a sensitive observation,
-
-Nature Lens must not attempt to reverse or reconstruct that information.
-
-Internally, the data model should preserve relevant metadata indicating that a location is obscured or imprecise.
-
-Observation data must be presented as observational evidence, not certainty.
-
-Preferred language:
-
-> This species has been observed in this area.
-
-Avoid:
-
-> This species definitely occurs here.
-
----
-
-## 🔐 Application security
-
-The first public version may not require user authentication.
-
-Security priorities still include:
-
-- secret management through environment variables,
-- runtime environment validation,
-- input validation,
-- query validation,
-- safe database access,
-- rate limiting where needed,
-- avoiding provider credentials in frontend bundles,
-- dependency updates,
-- sensible CORS configuration.
-
-Authentication should be introduced only when a real user-specific feature requires it.
-
----
-
-## 🚀 Deployment architecture
-
-The initial deployment direction is:
+Nature Lens is a modular monolith with one web application, one API application, one PostgreSQL/PostGIS database, and provider adapters for the external sources used by V1.
 
 ```mermaid
 flowchart LR
-    User["👤 Browser"]
+    Browser["Browser"] --> Web["Next.js web\nVercel"]
+    Web --> API["NestJS API\nRender"]
 
-    Vercel["▲ Vercel\nNext.js"]
-    Render["◼ Render\nNestJS"]
-    Supabase["🐘 Supabase\nPostgreSQL + PostGIS"]
-    Providers["🌐 External APIs"]
+    subgraph ApiProcess["Nature Lens API process"]
+        Controllers["Thin controllers"]
+        Services["Application services"]
+        Adapters["Provider adapters"]
+        Persistence["Explicit persistence"]
+        HTTP["External HTTP client"]
+        Protection["Request protection"]
+        Logging["Request context + JSON logs"]
+    end
 
-    User --> Vercel
-    Vercel --> Render
-    Render --> Supabase
-    Render --> Providers
+    API --> Controllers
+    Controllers --> Services
+    Services --> Persistence
+    Services --> Adapters
+    Adapters --> HTTP
+    Persistence --> DB[("Supabase\nPostgreSQL + PostGIS")]
+
+    HTTP --> INat["iNaturalist"]
+    HTTP --> GBIF["GBIF"]
+    HTTP --> Nominatim["OpenStreetMap\nNominatim"]
+    HTTP --> Meteo["Open-Meteo"]
+    HTTP --> GDOS["GDOŚ WFS"]
 ```
 
-Expected responsibilities:
+### Deployment boundaries
 
-### Vercel
+- **Vercel** runs the Next.js application from `web/`.
+- **Render** builds `api/Dockerfile` and runs the NestJS API as a non-root Node.js process.
+- **Supabase** provides PostgreSQL and PostGIS. Database migrations run separately from API startup.
+- External providers remain outside the availability and release boundaries of Nature Lens.
 
-- Next.js application,
-- frontend environment configuration,
-- frontend deployment previews.
+The frontend primarily talks to the Nature Lens API. Provider orchestration, provider limits, normalization, persistence, and error translation belong to the backend.
 
-### Render
+## System boundaries
 
-- NestJS API,
-- backend environment variables,
-- health checks,
-- runtime logs.
+### Next.js web
 
-### Supabase
+The frontend uses Next.js App Router, React Server Components by default, and small Client Components for browser-only interaction such as MapLibre, map movement, retry controls, and local UI state.
 
-- PostgreSQL,
-- PostGIS,
-- database connection management,
-- database backups and operational tooling provided by the platform.
+Server-rendered routes provide the initial page structure and data. Independent Suspense and error boundaries keep species observations, weather, and protected areas from turning one provider failure into a whole-page failure.
 
-This deployment model can change if the project creates a concrete reason to do so.
+The web application consumes public Nature Lens DTOs. Network responses are treated as untrusted and validated at runtime with Zod before they reach rendering logic. Rendered map features are validated again, flattened to safe scalar properties, and shown in popups built with DOM APIs rather than HTML interpolation.
 
----
+### NestJS API
 
-## 🧪 Testing strategy
+The API is a modular monolith. Its current product modules cover species, places, weather, and protected areas, with shared modules for the database, external HTTP, request protection, provider errors, and logging.
 
-Testing should reflect system boundaries.
-
-### Unit tests
-
-Best suited for:
-
-- pure mapping logic,
-- domain calculations,
-- normalization,
-- validation-related behavior,
-- isolated application services.
-
-### Integration tests
-
-Best suited for:
-
-- repositories,
-- PostgreSQL behavior,
-- PostGIS queries,
-- NestJS modules,
-- provider adapter behavior against mocked HTTP boundaries.
-
-### E2E tests
-
-Best suited for a small number of critical user journeys:
+The normal request path is:
 
 ```text
-search species
+controller
     ↓
-open species
+application service
     ↓
-load observations
+repository and/or provider capability
     ↓
-display map data
+PostgreSQL/PostGIS and/or external provider
 ```
 
-The goal is confidence, not maximizing test count.
+Controllers own HTTP parsing and response boundaries. Application services own use-case decisions. SQL and provider details stay behind explicit persistence and integration boundaries.
 
----
+### PostgreSQL and PostGIS
 
-## 📐 API design
+PostgreSQL stores application-owned species identities, provider mappings, normalized observations, exact provider-page synchronization state, and freshness metadata. PostGIS stores public observation points as WGS84 `geometry(Point, 4326)` values and executes viewport bounding-box queries.
 
-The frontend should consume stable Nature Lens resources.
+The API uses the low-level `pg` driver. This keeps transactions and spatial SQL visible and avoids introducing an ORM or generic repository abstraction without a demonstrated need.
 
-Examples may include:
+### Provider adapters
 
-```http
-GET /api/species/search?q=deer
-GET /api/species/:id
-GET /api/species/:id/observations
-GET /api/species/:id/observation-seasonality
+Each adapter owns:
+
+- provider endpoints and request parameters;
+- provider-specific throttling requirements;
+- runtime validation of the external payload received as `unknown`;
+- translation of transport and contract failures;
+- mapping into small provider-neutral integration types.
+
+Application services depend on capabilities such as species search, taxon matching, observation retrieval, place search, weather, or protected-area lookup. They do not depend on raw provider payloads.
+
+## Species flow
+
+### Search and identity resolution
+
+```mermaid
+sequenceDiagram
+    participant W as Next.js
+    participant A as Nature Lens API
+    participant I as iNaturalist
+    participant G as GBIF
+    participant D as PostgreSQL
+
+    W->>A: GET /api/species/search?q=...
+    A->>I: Search active Polish taxa
+    I-->>A: Provider taxa
+    A->>G: Match taxonomic identity
+    G-->>A: Match or no confident match
+    A->>D: Persist species and provider mappings
+    A-->>W: Nature Lens species DTOs
 ```
 
-Later:
+iNaturalist supplies the current search capability. A GBIF mapping is linked only when the match is exact, high-confidence, rank-compatible, and consistent with the normalized queried name. Scientific-name equality by itself never merges application species.
 
-```http
-GET /api/species/:id/observations?bbox=...
-GET /api/places/:id
-GET /api/observations?bbox=...&limit=...&speciesLimit=...
+Species have application-owned `bigint` identities represented as strings in public JSON. Provider mappings are written transactionally and protected by deterministic advisory locks so concurrent resolution cannot create duplicate identities or silently reassign a mapping.
+
+### Detail, synchronization, map, and seasonality
+
+```mermaid
+flowchart TD
+    Page["Species page"] --> Details["Persisted species details"]
+    Page --> Sync["Observation page request"]
+    Sync --> Fresh{"Exact local page fresh?"}
+    Fresh -->|yes| Local["Read persisted observations"]
+    Fresh -->|no| Providers["iNaturalist + mapped GBIF pages"]
+    Providers --> Validate["Validate + normalize"]
+    Validate --> Persist["Transactional upsert + page metadata"]
+    Persist --> Local
+    Providers -->|controlled failure with usable data| Stale["Serve stale persisted page"]
+    Page --> Bbox["Viewport bbox request"]
+    Bbox --> PostGIS["Local PostGIS query"]
+    Page --> Seasonality["Local SQL aggregation"]
 ```
 
-The general observations endpoint is viewport-based and provider-neutral. A
-place page uses its MapLibre viewport bounding box rather than treating the
-provider's place extent as an administrative boundary. Its feature limit and
-species-summary limit are independent; exact observation and species totals
-are calculated over the full bounding box before either response limit is
-applied.
+Observation synchronization is provider-page based and on demand. Fresh exact pages avoid provider calls. Stale pages are refreshed; a controlled provider failure may fall back to usable persisted data. Concurrent refreshes for the same species, provider, page, and page size share one complete in-process operation through provider fetch, persistence, metadata replacement, and final read.
 
-API contracts should be designed around product needs rather than mirroring provider endpoints.
+Map and seasonality reads never contact providers. They operate only on observations already synchronized into PostgreSQL.
 
----
+## Place flow
 
-## 📚 Documentation model
+```mermaid
+flowchart TD
+    Search["Global place search"] --> Nominatim["Nominatim adapter"]
+    Nominatim --> Place["Provider-neutral Place"]
+    Place --> Page["Place page"]
+    Page --> Map["MapLibre viewport"]
+    Map --> Observations["Local PostGIS bbox observations"]
+    Page --> Weather["Open-Meteo at place center"]
+    Map --> Protected["GDOŚ WFS for current viewport"]
+```
 
-Architecture knowledge is split intentionally:
+Place identity is an opaque deterministic value derived from the `osm` namespace, `osm_type`, and `osm_id`. Display labels, slugs, provider classifications, and Nominatim `place_id` do not participate in identity. Places are not currently persisted.
 
-| Document                 | Responsibility                                                  |
-| ------------------------ | --------------------------------------------------------------- |
-| `README.md`              | What the project is and how to use the repository               |
-| `ARCHITECTURE.md`        | How the system is structured and why                            |
-| `PROJECT_STATE.md`       | Where implementation currently stands and which step is current |
-| `IMPLEMENTATION_PLAN.md` | The step-by-step implementation roadmap                         |
-| `AGENTS.md`              | How coding agents should work with the repository               |
+Every place has a provider-supplied WGS84 center. Reliable way and relation bounding boxes are preserved for initial map fitting; node bounding boxes are not exposed because they are provider-guessed display hints. Observation queries always follow the actual MapLibre viewport rather than treating the provider extent as a legal or administrative boundary.
 
-Important architectural decisions discovered during implementation may later become dedicated ADRs.
+The three data sections are intentionally independent:
 
-For example:
+- biodiversity reads locally synchronized observations from PostGIS;
+- weather fetches the Open-Meteo model cell at the place center;
+- protected areas fetch GDOŚ geometry for the visible viewport only while the layer is enabled.
+
+One failure does not remove the other sections or the place header.
+
+## Provider-neutral contracts and validation
+
+The same boundary rule applies in both directions:
 
 ```text
-docs/
-└── adr/
-    ├── 001-modular-monolith.md
-    ├── 002-provider-adapters.md
-    └── 003-observation-storage-strategy.md
+external JSON
+    ↓ validate at provider adapter
+small integration type
+    ↓ normalize
+Nature Lens model
+    ↓ expose through public API
+public JSON
+    ↓ validate in Next.js
+rendered UI
 ```
 
-ADRs should be created for decisions worth preserving, not for every minor implementation choice.
+Only provider fields required by current behavior are modeled. Provider provenance remains available after normalization, including record links, independently supplied license information, dataset identity, and publisher metadata where available.
 
----
+Provider failures are translated into a stable application taxonomy. Raw provider payloads, validation details, URLs with queries, credentials, and transport internals are not returned to the frontend or emitted into normal logs.
 
-## 🚫 Explicit non-goals for the initial architecture
+## Observation identity and conservative deduplication
 
-The initial system does **not** require:
+Provider records remain separate database rows with provider-scoped unique identifiers. Nature Lens groups records only when exact canonical identity evidence exists; similar coordinates, dates, names, or positional accuracy are never sufficient.
 
-- microservices,
-- Kubernetes,
-- an event-driven architecture,
-- Redis by default,
-- message queues by default,
-- GraphQL,
-- a custom map server,
-- a generic data lake,
-- a full GIS platform,
-- complex authentication,
-- all providers integrated at once.
+V1 recognizes one cross-provider relationship: a GBIF record can share an iNaturalist observation identity only when it belongs to the official iNaturalist GBIF dataset and its `occurrenceID` exactly matches the canonical iNaturalist observation URL.
 
-These technologies are not forbidden.
+The direct iNaturalist row is the representative of that group. Representative selection happens before spatial filtering and is shared by maps and seasonality. This means a GBIF copy cannot reintroduce a public coordinate when the representative iNaturalist observation has no public point. Every grouped result still retains all provider links and provenance.
 
-They simply require a real problem before they earn a place in the architecture.
+Map limits, truncation metadata, totals, clusters, and temporal aggregation describe deduplicated groups rather than raw provider rows.
 
----
+## Spatial queries and dataset scope
 
-## 🌱 Evolution strategy
+Species and place maps request bounded WGS84 bounding boxes. PostGIS selects representative public points that intersect the viewport, including its boundary, and returns bounded GeoJSON in deterministic recency order.
 
-Architecture should evolve through pressure from real features.
+The all-species place query calculates exact observation and species totals across the full bbox before independently limiting map features and the ranked species list.
 
-A typical sequence is:
+Spatial and seasonality responses explicitly describe a locally synchronized dataset. `datasetScope: "locally-synchronized"` means:
 
-```text
-small vertical slice
-        ↓
-real limitation appears
-        ↓
-understand the limitation
-        ↓
-consider alternatives
-        ↓
-choose the smallest appropriate solution
-        ↓
-document the decision
-```
+- no external provider was queried for that read;
+- only records synchronized by previous product use are included;
+- missing results do not prove absence;
+- counts and seasonal distributions do not represent complete provider coverage or even observation effort.
 
-Examples:
+A point inside a viewport bbox means only that the public observation coordinate intersects that rectangular query. It does not establish that a species definitely occurs throughout a named place, protected area, ecological boundary, or legal/administrative unit.
 
-```text
-too many repeated provider calls
-        ↓
-introduce caching
-```
+## Caching, freshness, and single-flight behavior
 
-```text
-slow viewport queries
-        ↓
-inspect query plan
-        ↓
-add / adjust spatial indexing
-```
+Caching is specific to each use case rather than hidden behind one generic cache.
 
-```text
-provider instability hurts UX
-        ↓
-persist selected data
-        ↓
-introduce refresh strategy
-```
+| Data                          | Storage                           | Default freshness            | Failure behavior                                                      |
+| ----------------------------- | --------------------------------- | ---------------------------- | --------------------------------------------------------------------- |
+| Observation pages             | PostgreSQL page metadata and rows | 1 hour                       | Serve usable stale persisted data after a controlled provider failure |
+| Place search/lookup           | Bounded process-local cache       | 10 minutes                   | Do not invent results when the provider is unavailable                |
+| Current weather               | Bounded process-local cache       | 5 minutes                    | Do not hide provider failure behind expired weather                   |
+| Protected areas               | Live request while enabled        | None                         | Preserve other place sections and show a layer-local failure          |
+| Spatial and seasonality reads | PostgreSQL/PostGIS                | Current local database state | Never contact providers                                               |
 
-```text
-long-running synchronization becomes necessary
-        ↓
-consider background jobs / queues
-```
+Observation and weather refreshes use process-local single-flight registries. Nominatim uses one process-wide request queue and bounded caching. These controls reduce duplicate work in the current single-process deployment but do not coordinate multiple API replicas.
 
-This keeps the architecture connected to the actual product instead of turning the project into a catalogue of technologies.
+Redis is deliberately absent from V1. A distributed cache or shared coordination mechanism would add operational complexity without solving a demonstrated current bottleneck.
 
----
+## External HTTP resilience
 
-## 🧠 Architecture decision checklist
+One backend HTTP client provides JSON `GET`, provider labels, per-attempt timeouts, bounded retry with jitter, categorized failures, and attempt-aware structured logs.
 
-Before introducing a significant architectural change, answer:
+iNaturalist, GBIF, Open-Meteo, and GDOŚ use at most two attempts for network errors, timeouts, and HTTP 502/503/504. Nominatim uses one attempt because retrying would conflict with the public service policy. Client errors including 429, HTTP 500, invalid JSON, and contract-validation failures are not retried.
 
-1. **What concrete problem are we solving?**
-2. **Do we have evidence that the problem exists now?**
-3. **What is the simplest viable solution?**
-4. **What alternatives did we consider?**
-5. **What complexity does this solution introduce?**
-6. **How will we know whether it worked?**
-7. **Does the decision need to be documented as an ADR?**
+Timeouts are configurable per provider. Defaults are 10 seconds for iNaturalist, GBIF, and Nominatim, 5 seconds for Open-Meteo, and 15 seconds for GDOŚ.
 
----
+### Public Nominatim constraint
 
-<div align="center">
+The public Nominatim endpoint is appropriate only for the current low-traffic, submit-based search:
 
-## 🌲 Guiding principle
+- autocomplete is not used;
+- search and lookup share a process-wide maximum of one provider request per second;
+- identical in-flight requests are coalesced;
+- results visibly attribute OpenStreetMap contributors;
+- the service has no availability SLA.
 
-**First build the smallest working product slice.  
-Then solve the next real problem.  
-Only then introduce the abstraction or technology that earns its place.**
+Multiple API replicas or meaningful traffic growth require a different OSM-backed service, a self-hosted instance, or cross-process coordination. Adding replicas without changing this strategy would violate the intended aggregate request limit.
 
-</div>
+## Partial failure and availability metadata
+
+Provider-backed sections fail independently. A place can retain its map and observation results while weather or protected areas fail. Species synchronization can return usable data when one biodiversity provider is unavailable.
+
+Observation synchronization returns request-scoped provider availability:
+
+- `available` — the requested data is usable; a fresh cache hit does not imply a provider was contacted;
+- `stale` — refresh failed, but usable persisted data exists;
+- `unavailable` — no usable data exists for that provider in this request.
+
+This metadata is not global provider health, uptime monitoring, or a statement about every provider endpoint. It remains separate from page freshness, response source, local dataset scope, and truncation.
+
+## Request protection
+
+Public inputs are bounded before application work begins:
+
+- trimmed search queries have a maximum length;
+- observation pagination has bounded page sizes and result windows;
+- map feature and species-list limits are independent and bounded;
+- bbox spans are bounded while still allowing the full-Poland viewport;
+- configuration is validated before application startup.
+
+Incoming API traffic uses process-local per-IP throttling with a validated baseline and stricter expensive-route overrides. Render sets `TRUST_PROXY=true` so Express uses the trusted platform-provided client address; direct and local deployments leave proxy trust disabled.
+
+CORS permits credential-free browser `GET` requests only from the exact configured `WEB_ORIGIN`.
+
+## Logging and request correlation
+
+Every API request receives a server-generated UUID returned as `X-Request-ID`. An `AsyncLocalStorage` request context adds `requestId` to JSON logs produced during asynchronous controller, service, repository, and provider work. Response completion is logged once with the method, query-free path, status, and latency.
+
+Inbound request IDs are ignored because the system has no trusted propagation policy. Correlation currently covers one API request, not a browser-to-provider distributed trace. There is no external trace collector or global provider-health system in V1.
+
+Use the returned `X-Request-ID` or the `requestId` from an API error log to filter the Render log stream. Operational guidance is in [RUNBOOK.md](RUNBOOK.md).
+
+## Protected-area geometry
+
+GDOŚ WFS responses are runtime-validated and normalized to supported Polygon and MultiPolygon features. Geometry is simplified after validation solely to reduce map-transfer and rendering cost. The tolerance follows viewport span within fixed bounds, and simplified geometry is structurally validated again before exposure.
+
+This is presentation-only geometry. It may be incomplete when the response is truncated, simplification does not promise topology preservation, and the result must not be used for legal, surveying, or authoritative spatial-analysis decisions.
+
+## Nature-data safety
+
+Nature Lens preserves provider privacy and precision restrictions. Private coordinates remain absent, obscured coordinates are not reconstructed, and missing coordinates do not automatically imply obscurity.
+
+Observation date and timestamp precision remain separate. Date-only provider data does not receive an invented time. Seasonality uses the preserved provider calendar date and reports records without one as undated.
+
+Product wording treats records as observations:
+
+> This species has been observed in this area.
+
+It does not claim guaranteed current presence.
+
+## Deployment and schema changes
+
+The API image uses the repository-pinned Node.js and pnpm versions. Build dependencies remain in intermediate Docker stages; the runtime image contains only compiled API output and production dependencies and runs as the non-root `node` user.
+
+Production migrations are separate from API startup. `pnpm db:migrate:production` reads only `MIGRATION_DATABASE_URL`, verifies order, applies pending migrations in one transaction, and fails immediately when another migration process holds the advisory lock.
+
+The production release order is migration, API deployment, health verification, web deployment when required, and the fail-fast production smoke check. Production database fixes are forward migrations. Application artifacts may be rolled back only when their schema expectations remain compatible; see [RUNBOOK.md](RUNBOOK.md).
+
+## Testing boundaries
+
+- **Unit tests** cover runtime validation, mapping, normalization, error translation, service decisions, controller behavior, and persistence collaborators.
+- **Integration tests** apply real migrations to ephemeral PostgreSQL/PostGIS containers and exercise repository, spatial, synchronization, and HTTP behavior with only external providers stubbed.
+- **E2E tests** run the real Next.js application against a deterministic public Nature Lens API fixture for the two primary user journeys. A local empty MapLibre style avoids public tile dependencies.
+- **Production smoke** checks the server-rendered Vercel search, Render health, direct species search, observation synchronization, and a Poland-bounded PostGIS GeoJSON read.
+
+The smoke test verifies the normal deployed path but does not prove that a provider was contacted during that run: fresh cache data or stale-if-error fallback may satisfy synchronization safely.
+
+## Important V1 trade-offs
+
+### Modular monolith over services
+
+One API deployment keeps transactions, ownership, debugging, and delivery simple. There is no independent workload that currently justifies distributed deployment or messaging.
+
+### Explicit SQL over ORM abstraction
+
+PostGIS queries, transaction boundaries, and identity locks remain visible. The cost is more hand-written persistence code; the benefit is direct control over the actual data model and spatial behavior.
+
+### Provider-specific persistence and freshness
+
+Observations are persisted because spatial queries, grouping, and historical analysis benefit from local data. Weather and protected areas remain live because persistence would add little current product value. This creates explicit, honest differences in freshness rather than one misleading global policy.
+
+### Process-local coordination
+
+Caches, rate limiting, request queues, and single-flight registries reset on restart and do not coordinate replicas. This is sufficient for the current single-process MVP. Horizontal API scaling requires revisiting these assumptions before adding instances.
+
+### Partial results over all-or-nothing pages
+
+Independent sections and provider metadata preserve useful data during provider failures. The trade-off is more UI and API state: loading, empty, stale, unavailable, truncated, and locally synchronized must remain distinct.
+
+### Conservative identity over aggressive deduplication
+
+Exact canonical evidence leaves some conceptual duplicates separate, but avoids silently merging unrelated observations or exposing coordinates through a weaker copy.
+
+## Current limitations
+
+- Place identities and place data are provider-derived and not persisted independently.
+- Spatial totals and seasonality cover only locally synchronized observations.
+- Cross-provider observation grouping recognizes only the official GBIF-published iNaturalist relationship.
+- Process-local Nominatim limits, incoming throttling, caches, and single-flight behavior assume one API process.
+- Exact-origin CORS means Vercel preview deployments can server-render against production but cannot perform browser map refreshes unless the CORS policy changes deliberately.
+- Request IDs correlate one API request; there is no distributed tracing or external log aggregation.
+- GDOŚ geometry is bounded and display-oriented, not authoritative.
+
+## Planned extensions
+
+The following roadmap items are not part of the current architecture:
+
+- BDL forestry data and a forestry map/place section;
+- IMGW official measurement data and source distinction;
+- selected OpenStreetMap infrastructure or POI layers;
+- scheduled background synchronization if request-driven synchronization becomes insufficient;
+- Redis or another distributed coordinator only if measurements or multi-instance deployment justify it.
+
+These extensions should preserve the same boundary rules: validate external data, normalize into application-owned contracts, add persistence only where it creates value, and introduce infrastructure only for a concrete problem.
+
+## Explicit non-goals for V1
+
+V1 does not contain microservices, Redis, message queues, background workers, Kubernetes, GraphQL, complex authentication, a custom map server, or a generic GIS platform. These are not forbidden; they have not earned their operational cost.
+
+## Documentation model
+
+- [README.md](README.md) explains what the project does and how to run it.
+- [ARCHITECTURE.md](ARCHITECTURE.md) records current boundaries and decisions.
+- [RUNBOOK.md](RUNBOOK.md) describes production diagnosis and recovery.
+- [PROJECT_STATE.md](PROJECT_STATE.md) is the rolling implementation snapshot.
+- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) defines current and future steps.
+
+The guiding rule is to build the smallest coherent product slice, measure the next real limitation, and add complexity only when that limitation justifies it.

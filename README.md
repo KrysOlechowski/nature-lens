@@ -2,546 +2,216 @@
 
 # 🌲 Nature Lens
 
-### Explore biodiversity and environmental data across Poland.
+### Explore real biodiversity and environmental data across Poland.
 
-**Real observations. Real environmental data. One coherent interface.**
-
-🌿 Biodiversity · 🦌 Species observations · 🗺️ Geospatial data · 🌦️ Environment · 🇵🇱 Poland
+[Production web](https://nature-lens-poland.vercel.app) · [Production API health](https://nature-lens-api.onrender.com/api/health)
 
 </div>
 
 ---
 
-## 🌍 About the project
+## 🌿 What Nature Lens does
 
-**Nature Lens** is a web application that brings together real biodiversity, environmental, forestry, weather, and geospatial data for Poland.
+Nature Lens combines public nature data behind one application-owned API and presents it through two product flows.
 
-Useful nature data is currently scattered across many independent public APIs and open-data platforms. Each provider exposes different models, formats, spatial structures, update frequencies, and reliability characteristics.
+### 🦌 Species → where and when was it observed?
 
-Nature Lens aims to turn those fragmented sources into one consistent product.
+1. Search for a species by common or scientific name.
+2. Open its application-owned species page.
+3. Synchronize real observations from iNaturalist and GBIF.
+4. Explore locally stored, deduplicated observations on a MapLibre map.
+5. Review observation seasonality by month and year.
 
-The application is designed around two primary questions:
+### 🗺️ Place → what nature data is available here?
 
-### 🦌 Species → Where and when was it observed?
+1. Search for a Polish place through OpenStreetMap Nominatim.
+2. Open a place page centered on the provider location or extent.
+3. Explore locally synchronized biodiversity observations in the current map viewport.
+4. See current Open-Meteo model conditions for the place center.
+5. Toggle display-simplified GDOŚ protected-area boundaries.
 
-For example:
+Nature Lens reports observations, not guaranteed species presence. It preserves provider privacy restrictions and never attempts to reconstruct obscured or hidden coordinates.
 
-> **Red deer — _Cervus elaphus_**
+## 🏗️ Current V1 architecture
 
-A user should eventually be able to explore:
+Nature Lens is a pnpm workspace with a Next.js frontend and a NestJS modular-monolith API. External provider payloads are validated and normalized at adapter boundaries before they enter application logic.
 
-- observation locations across Poland,
-- observation history,
-- seasonality,
-- geographic distribution,
-- regional patterns,
-- basic species information.
-
-### 🌲 Place → What nature data is available here?
-
-For example:
-
-> **Niepołomice Forest**
-
-A user should eventually be able to explore:
-
-- species observations,
-- forests and forest stands,
-- protected areas,
-- environmental conditions,
-- weather,
-- selected infrastructure,
-- spatial data displayed on an interactive map.
-
----
-
-## ✨ Product principles
-
-Nature Lens is not intended to be a portfolio application built around artificial datasets.
-
-The project uses **real external data** and therefore has to deal with real engineering problems:
-
-- 🔌 heterogeneous external APIs,
-- 🧩 data normalization,
-- 🗺️ geospatial data,
-- 🐘 PostgreSQL and PostGIS,
-- ⏱️ slow or unavailable providers,
-- 🚦 rate limits,
-- 💾 caching and synchronization,
-- 🛡️ validation of external data,
-- ⚡ progressive loading,
-- 📊 spatial aggregation,
-- 🔍 efficient map queries,
-- 📡 observability and provider failures.
-
-The architecture should evolve in response to actual product requirements rather than speculative complexity.
-
----
-
-## 🧭 Current direction
-
-The first complete vertical slice focuses on one simple product flow:
-
-```text
-Search for a species
-        ↓
-Find the species
-        ↓
-Load real observations from Poland
-        ↓
-Normalize and persist the data
-        ↓
-Expose it through the Nature Lens API
-        ↓
-Display observations on an interactive map
+```mermaid
+flowchart LR
+    User["Browser"] --> Web["Next.js 16\nVercel"]
+    Web --> API["NestJS 12 API\nRender"]
+    API --> DB[("PostgreSQL + PostGIS\nSupabase")]
+    API --> INat["iNaturalist"]
+    API --> GBIF["GBIF"]
+    API --> Nominatim["OpenStreetMap\nNominatim"]
+    API --> Meteo["Open-Meteo"]
+    API --> GDOS["GDOŚ WFS"]
 ```
 
-A representative example:
+The frontend consumes provider-neutral Nature Lens contracts rather than raw provider responses. PostgreSQL/PostGIS stores species and normalized observations where persistence, synchronization, deduplication, seasonality, and spatial querying add product value. Place search, weather, and protected areas are fetched live with provider-specific caching and resilience policies.
 
-```text
-"Red deer"
-    ↓
-Next.js
-    ↓
-Nature Lens API
-    ↓
-NestJS
-    ↓
-iNaturalist
-    ↓
-validation + normalization
-    ↓
-PostgreSQL / PostGIS
-    ↓
-API
-    ↓
-MapLibre
-```
-
-The first milestone deliberately stays small.
-
-No microservices.  
-No Redis without a real need.  
-No seven-provider integration on day one.  
-No giant GIS platform hiding inside a portfolio project.
-
----
+For boundaries, data flows, failure behavior, and trade-offs, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 🧱 Technology stack
 
-| Area              | Technologies                                           |
-| ----------------- | ------------------------------------------------------ |
-| 🖥️ **Frontend**   | Next.js 16, React, TypeScript, Tailwind CSS, shadcn/ui |
-| ⚙️ **Backend**    | Node.js, NestJS, REST API                              |
-| 🐘 **Data**       | PostgreSQL, PostGIS, Supabase                          |
-| 🗺️ **Maps**       | MapLibre, GeoJSON, spatial queries                     |
-| ☁️ **Deployment** | Vercel, Render, Supabase                               |
-
----
-
-## 🏗️ Architecture
-
-Nature Lens starts as a **modular monolith**.
-
-The frontend primarily communicates with the Nature Lens backend rather than integrating with every external provider independently.
-
-```mermaid
-flowchart TD
-    User["👤 User"]
-
-    Web["🖥️ Next.js"]
-    API["⚙️ NestJS API"]
-    Domain["🧠 Domain services"]
-    DB[("🐘 PostgreSQL + PostGIS")]
-
-    INat["🦌 iNaturalist"]
-    GBIF["🌿 GBIF"]
-    BDL["🌲 BDL"]
-    GDOS["🛡️ GDOŚ"]
-    Weather["🌦️ Weather providers"]
-
-    User --> Web
-    Web --> API
-    API --> Domain
-
-    Domain --> DB
-
-    Domain --> INat
-    Domain --> GBIF
-    Domain --> BDL
-    Domain --> GDOS
-    Domain --> Weather
-```
-
-External providers are isolated behind adapters.
-
-```text
-SpeciesService
-      ↓
-INaturalistAdapter
-      ↓
-iNaturalist API
-```
-
-Provider-specific responses should not leak throughout the application.
-
-Instead:
-
-```text
-external response
-       ↓
-runtime validation
-       ↓
-normalization
-       ↓
-Nature Lens model
-       ↓
-domain logic
-```
-
-This makes the application less dependent on the contracts of individual providers and creates a consistent API for the frontend.
-
----
-
-## 🗺️ Geospatial data
-
-Maps are a core part of the product, but Nature Lens is **not intended to become a general-purpose GIS platform**.
-
-The project uses GIS concepts only where they solve actual product problems.
-
-Examples include:
-
-- geographic coordinates,
-- GeoJSON,
-- `Point`, `LineString` and `Polygon`,
-- bounding boxes,
-- spatial indexes,
-- clustering,
-- heatmaps,
-- distance queries,
-- point-in-polygon queries,
-- spatial aggregation,
-- PostGIS,
-- WMS / WFS / OGC APIs.
-
-A typical future query might look conceptually like:
-
-```text
-Find observations
-inside the current map viewport
-for a selected species
-within a given date range
-```
-
----
-
-## 🌐 Data sources
-
-Nature Lens is designed to integrate multiple public and open-data providers.
-
-| Source               | Purpose                                                        |
-| -------------------- | -------------------------------------------------------------- |
-| 🦌 **iNaturalist**   | Recent biodiversity observations                               |
-| 🌿 **GBIF**          | Large-scale and historical biodiversity occurrence data        |
-| 🌲 **BDL**           | Polish forests, forest stands and forestry-related information |
-| 🛡️ **GDOŚ**          | Protected areas, Natura 2000 and other nature protection data  |
-| 🗺️ **OpenStreetMap** | Geographic context, paths, infrastructure and selected POIs    |
-| 🌦️ **Open-Meteo**    | Weather and environmental conditions                           |
-| 🇵🇱 **IMGW**          | Official Polish meteorological and hydrological data           |
-
-Not every provider belongs in the first version.
-
-Integrations should be introduced only when they support a concrete product requirement.
-
----
-
-## ⚡ Progressive loading
-
-Nature Lens depends on several independent external systems.
-
-The UI should therefore avoid treating the page as one giant request.
-
-Instead, individual sections can load independently:
-
-```text
-Overview              ✓
-Map                   ✓
-Species observations  loading...
-Weather               ✓
-Protected areas       error
-Forest data           loading...
-```
-
-A temporary failure of one provider should not make the entire application unusable.
-
-This makes partial failures a product concern as much as a backend concern.
-
----
-
-## 🛡️ Responsible nature data
-
-Biodiversity data represents **observations**, not certainty.
-
-The application should communicate:
-
-> “This species has been observed in this area.”
-
-rather than:
-
-> “This species definitely occurs here.”
-
-Nature Lens must also respect provider rules regarding protected, threatened, and sensitive species.
-
-If a data source obscures or reduces the precision of a location, the application will **not attempt to reconstruct the hidden coordinates**.
-
-The project will also not provide mushroom-edibility decisions or other safety-critical species identification advice.
-
----
+| Area       | Technology                                                |
+| ---------- | --------------------------------------------------------- |
+| Web        | Next.js 16, React 19, TypeScript, Tailwind CSS, shadcn/ui |
+| API        | Node.js, NestJS 12, REST, Zod                             |
+| Data       | PostgreSQL, PostGIS, Supabase                             |
+| Maps       | MapLibre, GeoJSON, viewport-based spatial queries         |
+| Deployment | Vercel, Render, Supabase                                  |
+| Testing    | Vitest, Testcontainers, Playwright, GitHub Actions        |
 
 ## 📦 Repository structure
 
-The repository uses a small pnpm workspace. The frontend runs a Next.js application; the backend runs a NestJS API connected to PostgreSQL on Supabase.
-
 ```text
 nature-lens/
-│
-├── web/                    # Next.js frontend (App Router)
-├── api/                    # NestJS backend
-│   ├── migrations/         # Versioned PostgreSQL schema changes
+├── web/                    # Next.js App Router application
+├── api/                    # NestJS API
+│   ├── migrations/         # Forward database schema history
 │   └── test/               # PostgreSQL/PostGIS integration tests
-│
-├── README.md
-├── ARCHITECTURE.md
-├── PROJECT_STATE.md
-├── AGENTS.md
-├── IMPLEMENTATION_PLAN.md
-│
-├── package.json
-├── pnpm-lock.yaml
-└── pnpm-workspace.yaml
+├── scripts/                # Production smoke check
+├── .github/workflows/      # CI quality pipeline
+├── ARCHITECTURE.md         # Current architecture and trade-offs
+├── RUNBOOK.md              # Production diagnosis and recovery
+└── PROJECT_STATE.md        # Concise current implementation snapshot
 ```
 
-The structure will evolve only when the project creates a concrete need for additional packages or boundaries.
+## 🚀 Local setup
 
-With pnpm 12.4.1 installed (the version pinned in `package.json`), install dependencies from the repository root:
+### ✅ Prerequisites
+
+- Node.js 22.22.3 or newer on the 22.x line, or Node.js 24.15 or newer on the 24.x line
+- pnpm 12.4.1, pinned by the root `packageManager` field
+- a reachable PostgreSQL database with PostGIS support, such as a development Supabase project
+- a Docker-compatible runtime only when running the Testcontainers integration suite
+
+Node.js 23.3.0 is not supported because it cannot load a Nest CLI dependency used by this repository.
+
+### ⚙️ Install and configure
+
+From the repository root:
 
 ```bash
 pnpm install
-```
-
-If pnpm is not on your PATH, you can run the same command through npm:
-
-```bash
-npm exec --yes --package=pnpm@12.4.1 -- pnpm install
-```
-
-Create the local environment files from the committed examples:
-
-```bash
 cp web/.env.example web/.env.local
 cp api/.env.example api/.env
 ```
 
-Replace the placeholder `DATABASE_URL` in `api/.env` with the connection string for the development Supabase project. Keep this value local: it contains database credentials and must never be committed.
+Set `DATABASE_URL` in `api/.env` to the development database connection string. Never commit that file or its credentials. The checked-in examples document every required variable and safe default.
 
-The frontend requires `NEXT_PUBLIC_API_BASE_URL`, which is exposed to browser code and therefore must never contain a secret. It identifies the public API origin, such as `https://nature-lens-api.onrender.com`, without the `/api` route prefix. `NEXT_PUBLIC_MAP_STYLE_URL` optionally selects the public MapLibre style and defaults to OpenFreeMap Liberty. Next.js embeds public environment values into the client bundle at build time. The API requires the server-only `PORT`, `WEB_ORIGIN`, and `DATABASE_URL` values. `WEB_ORIGIN` must be the exact frontend origin, without a path; the API permits browser `GET` requests from that origin without credentials. `TRUST_PROXY` defaults to `false` and must be enabled only when the application is behind a trusted platform proxy that supplies the client address, such as Render. `DATABASE_POOL_MAX` controls the maximum number of PostgreSQL connections held by one API process and defaults to `5`. `OBSERVATION_FRESHNESS_WINDOW_SECONDS` controls how long an exact persisted observation page can be served without refreshing it from the provider and defaults to one hour. Both applications validate their configuration before starting; missing values and invalid configuration produce an immediate error.
-
-Start the frontend from the repository root:
-
-```bash
-pnpm dev:web
-```
-
-Open http://localhost:3000 to view the Nature Lens welcome page. It is a static starting point; species search and observation data will be added in later steps.
-
-Frontend commands, also run from the repository root:
-
-```bash
-pnpm --filter web typecheck
-pnpm --filter web build
-pnpm --filter web start
-```
-
-`start` serves the production build, so run `build` first. `typecheck` generates Next.js route types before checking TypeScript, including on a fresh checkout.
-
-The frontend uses Next.js 16, React 19, TypeScript, and Tailwind CSS 4. In `web/app/`, `layout.tsx` defines the HTML document and metadata, `page.tsx` renders `/`, and `globals.css` imports Tailwind. The layout and page are Server Components by default; no client-side interaction is needed yet.
-
-Start the backend from the repository root in a separate terminal:
-
-Use Node.js 22.22.3+ on the 22.x line or 24.15+ on the 24.x line for the full Nest CLI toolchain, including its generators ([NestJS prerequisites](https://docs.nestjs.com/first-steps#prerequisites)). The locally installed Node.js 22.22.0 passed build and server checks, while Node.js 23.3.0 failed to load a CLI dependency. If using nvm, select the appropriate Node version with `nvm use` before running the backend commands.
-
-```bash
-pnpm dev:api
-```
-
-With the example configuration, the API listens on http://localhost:3001 with a global `/api` route prefix. PostgreSQL must be reachable before the API starts. `GET /api/health` reports the API contract status.
-
-Backend commands, also run from the repository root:
-
-```bash
-pnpm --filter api typecheck
-pnpm --filter api build
-pnpm test:integration
-pnpm --filter api start
-```
-
-`dev:api` recompiles and restarts the backend when source files change. `start` runs the compiled application, so run `build` first.
-
-### Production API runtime
-
-The production API runs on Render from `api/Dockerfile`. Render supplies the runtime port, terminates public TLS, and forwards the original client address through its proxy. Set `TRUST_PROXY=true` for that service so Express and the API throttler use the forwarded client address; keep the default `false` when the API is reached directly. Keep `WEB_ORIGIN` restricted to the exact production Vercel origin and use the production Supabase connection only in the server-side `DATABASE_URL`.
-
-The public API base URL is the HTTPS origin without a path or trailing `/api`, for example `https://nature-lens-api.onrender.com`. API routes retain the application-owned `/api` prefix, including `/api/health`.
-
-### Production web runtime
-
-The production web application runs at `https://nature-lens-poland.vercel.app` from the `web` workspace. Its required `NEXT_PUBLIC_API_BASE_URL` points to the public Render API origin, `https://nature-lens-api.onrender.com`, without the `/api` route prefix. `NEXT_PUBLIC_MAP_STYLE_URL` explicitly selects the public MapLibre style in production and remains optional because the application defaults to OpenFreeMap Liberty. These public values contain no secrets.
-
-Vercel supplies `VERCEL_PROJECT_PRODUCTION_URL` automatically as a hostname without a protocol. The server-side metadata configuration adds `https://` and uses the resulting stable project production URL as its metadata base and home-page canonical URL. It does not use the deployment-specific `VERCEL_URL`, require a `NEXT_PUBLIC_SITE_URL`, or require this Vercel-only value for local builds.
-
-Environment-variable changes in Vercel apply only to new deployments, so redeploy the web application after changing them. The Render API must set `WEB_ORIGIN=https://nature-lens-poland.vercel.app` and be redeployed after that value changes so browser requests receive the matching CORS origin.
-
-Apply pending database migrations before starting a freshly configured environment:
+Apply the schema:
 
 ```bash
 pnpm db:migrate
 ```
 
-Create a TypeScript migration with a UTC timestamp or revert the most recently applied migration with:
+Start the applications in separate terminals:
 
 ```bash
+pnpm dev:api
+pnpm dev:web
+```
+
+The web application defaults to <http://localhost:3000>. The API defaults to <http://localhost:3001> and exposes `GET /api/health`.
+
+### 🔐 Important local configuration
+
+- `NEXT_PUBLIC_API_BASE_URL` is the public API origin without `/api`; it is embedded in the browser bundle and must not contain a secret.
+- `NEXT_PUBLIC_MAP_STYLE_URL` is optional and defaults to OpenFreeMap Liberty.
+- `WEB_ORIGIN` is one exact allowed web origin without a path.
+- `DATABASE_URL` and production-only `MIGRATION_DATABASE_URL` are server-side secrets.
+- `TRUST_PROXY` remains `false` locally and is enabled only behind the trusted Render proxy.
+
+The API validates its configuration before startup. See [api/.env.example](api/.env.example) and [web/.env.example](web/.env.example) for provider timeouts, freshness windows, request limits, and endpoint overrides.
+
+## 🧪 Development and quality commands
+
+Run commands from the repository root.
+
+| Command                 | Purpose                                                        |
+| ----------------------- | -------------------------------------------------------------- |
+| `pnpm format:check`     | Check repository formatting                                    |
+| `pnpm lint`             | Lint the web, API, and scripts                                 |
+| `pnpm typecheck`        | Type-check both applications                                   |
+| `pnpm test`             | Run API and web unit tests                                     |
+| `pnpm test:integration` | Run PostgreSQL/PostGIS integration tests in Testcontainers     |
+| `pnpm test:e2e`         | Run the two primary browser journeys with Playwright           |
+| `pnpm build`            | Build the web and API applications                             |
+| `pnpm smoke:production` | Check the deployed web, API, synchronization, and PostGIS flow |
+
+Install the Playwright Chromium runtime before the first local E2E run:
+
+```bash
+pnpm --filter web exec playwright install chromium
+```
+
+GitHub Actions runs frozen installation, formatting, linting, type-checking, unit tests, integration tests, E2E tests, and both builds for pull requests and pushes to `main`.
+
+## 🐘 Database migrations
+
+Local migrations read `DATABASE_URL` from `api/.env`:
+
+```bash
+pnpm db:migrate
 pnpm db:migrate:create migration-name
 pnpm db:migrate:down
 ```
 
-Migrations load the server-only `DATABASE_URL` from `api/.env`. They run explicitly rather than as a side effect of API startup. The first migration enables PostGIS in the dedicated `extensions` schema.
-
-### Production database migrations
-
-Production migrations use a separate command and connection secret:
+Production migrations are deliberately separate from API startup and forward-only:
 
 ```bash
-pnpm db:migrate:production
+MIGRATION_DATABASE_URL=... pnpm db:migrate:production
 ```
 
-The command reads `MIGRATION_DATABASE_URL` only from the process environment; it does not load `api/.env`. Store that value in the deployment platform or CI secret store, never in the repository. For Supabase, prefer the direct connection string with SSL required. The migration runner must have IPv6 connectivity for the default direct endpoint; if it does not, use the session pooler connection string on port 5432. Do not expose either connection string to the frontend.
+`MIGRATION_DATABASE_URL` must come from the process environment or a deployment secret store. The production command checks migration order, applies pending migrations in one transaction, and uses an advisory lock to reject concurrent migration runs. Correct production schema problems with a new forward migration rather than `db:migrate:down`.
+
+## ☁️ Production deployment
+
+The production topology is:
+
+- `web/` on Vercel;
+- the API container from `api/Dockerfile` on Render;
+- PostgreSQL/PostGIS on Supabase.
 
 Deploy database and API changes in this order:
 
-1. Install the frozen workspace dependencies from the committed lockfile.
-2. Run `pnpm db:migrate:production` once from the repository root.
-3. Deploy or restart the API with its runtime `DATABASE_URL`.
-4. Verify `GET /api/health` before directing production traffic to the new release.
+1. Install dependencies from the frozen lockfile.
+2. Run `pnpm db:migrate:production` with the migration-only connection secret.
+3. Deploy or restart the Render API with its runtime `DATABASE_URL`.
+4. Verify `GET /api/health`.
+5. Deploy the Vercel web application when its code or build-time environment changes.
+6. Run `pnpm smoke:production`.
 
-The production command is forward-only. It checks migration order, applies all pending migrations in one transaction, and takes an advisory lock that fails immediately if another migration process is active. Re-running it is safe because `node-pg-migrate` records completed migrations in `pgmigrations`. If a deployed schema change needs correction, add a new forward migration; do not run `db:migrate:down` against production.
+Environment changes apply only to new deployments. `WEB_ORIGIN` on Render must exactly match the production Vercel origin, and `NEXT_PUBLIC_API_BASE_URL` on Vercel must point to the Render origin without `/api`.
 
-Database integration tests require a running Docker-compatible container runtime. Testcontainers starts an ephemeral PostgreSQL/PostGIS container, creates an isolated test database, and applies the repository migrations before the tests run. Each test uses one PostgreSQL client inside a transaction that is rolled back afterward, so the development Supabase database and local environment configuration are not used. The first run downloads the `postgis/postgis:17-3.5-alpine` image.
+For symptoms, log correlation, safe recovery, rollback, and forward-fix guidance, see [RUNBOOK.md](RUNBOOK.md).
 
-The backend uses NestJS 12 with its default Express adapter and native ES modules. In `api/src/`, `main.ts` creates the application, sets the route prefix, and starts the HTTP server; `app.module.ts` defines the root module. Feature modules, controllers, and providers will be added as product functionality is implemented.
+## 🛡️ Data scope and safety
 
-The current integration suite covers the persistence foundation. Unit, HTTP, and end-to-end coverage will be added with the product behavior that requires them.
+- Observation maps, bbox totals, species summaries, and seasonality use only records already synchronized into the Nature Lens database. They do not represent complete provider coverage.
+- Viewport results mean that an observation point falls inside the requested bounding box. They do not prove that a species occupies a legal, ecological, or administrative area.
+- Cross-provider grouping is intentionally conservative and requires exact canonical identity evidence.
+- GDOŚ geometry is simplified only for display and is not suitable for legal decisions.
+- Weather describes the Open-Meteo model cell at the place center, not an entire place extent.
 
----
+## 🌱 Planned post-V1 extensions
 
-## 🚦 Project status
-
-> 🟡 **Status: early development / frontend bootstrap**
-
-The project is being built incrementally through small, working vertical slices.
-
-The first major milestone is:
-
-### 🦌 Species observations on a map
-
-A user can:
-
-1. search for a species,
-2. select a result,
-3. open its species page,
-4. see real observations from Poland,
-5. explore those observations on an interactive map.
-
-After that foundation works end-to-end, additional providers and environmental datasets can be introduced.
-
----
-
-## 🧪 Engineering goals
-
-Besides building a useful product, Nature Lens serves as a practical environment for exploring production-oriented engineering topics.
-
-### Frontend
-
-- React architecture
-- Next.js App Router
-- Server and Client Components
-- data fetching
-- loading and error states
-- TypeScript
-- performance
-- interactive maps
-
-### Backend
-
-- NestJS architecture
-- REST API design
-- external API integrations
-- dependency injection
-- adapter pattern
-- runtime validation
-- error handling
-- caching
-- rate limiting
-
-### Data
-
-- PostgreSQL
-- SQL
-- PostGIS
-- spatial indexes
-- spatial queries
-- data normalization
-
-### Engineering
-
-- unit tests
-- integration tests
-- E2E tests
-- Docker
-- CI/CD
-- observability
-- deployment
-- resilience
-- system design
-
----
+BDL forestry data, IMGW official measurements, additional OpenStreetMap layers, background synchronization, and distributed infrastructure remain post-V1 possibilities. They are not part of the current architecture and should be introduced only for a concrete product or operational need.
 
 ## 📚 Project documentation
 
-More detailed project knowledge lives outside this README.
-
-| Document                    | Purpose                                                              |
-| --------------------------- | -------------------------------------------------------------------- |
-| 🏗️ `ARCHITECTURE.md`        | Architecture, system boundaries and important technical decisions    |
-| 📍 `PROJECT_STATE.md`       | Current implementation state and current-step pointer                |
-| 🧭 `IMPLEMENTATION_PLAN.md` | Full implementation roadmap used step by step                        |
-| 🤖 `AGENTS.md`              | Instructions and context for coding agents working in the repository |
-
-The README describes **what Nature Lens is**.
-
-`ARCHITECTURE.md` explains **why the system is designed the way it is**.
-
-`PROJECT_STATE.md` answers **where the implementation currently stands and what the current step is**.
-
-`IMPLEMENTATION_PLAN.md` defines **what should be built, step by step**.
-
-`AGENTS.md` defines **how coding agents should work with the repository**.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — current system boundaries, data flows, and important trade-offs.
+- [RUNBOOK.md](RUNBOOK.md) — production diagnosis and safe recovery actions.
+- [PROJECT_STATE.md](PROJECT_STATE.md) — current implementation snapshot and next implementation step.
+- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — incremental roadmap, including post-V1 work.
+- [AGENTS.md](AGENTS.md) — repository working rules for coding agents.
 
 ---
 
 <div align="center">
 
-### 🌲 Nature Lens
-
-**Real nature data. Clear engineering decisions. One step at a time.**
+**Real nature data. Clear engineering decisions. One coherent interface.**
 
 </div>
