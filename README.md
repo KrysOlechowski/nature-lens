@@ -4,7 +4,7 @@
 
 ### Explore real biodiversity and environmental data across Poland.
 
-[Production web](https://nature-lens-poland.vercel.app) · [Production API health](https://nature-lens-api.onrender.com/api/health)
+[Production web](https://nature-lens-poland.vercel.app) · [API liveness](https://nature-lens-api.onrender.com/api/health) · [API readiness](https://nature-lens-api.onrender.com/api/health/ready)
 
 </div>
 
@@ -114,7 +114,7 @@ pnpm dev:api
 pnpm dev:web
 ```
 
-The web application defaults to <http://localhost:3000>. The API defaults to <http://localhost:3001> and exposes `GET /api/health`.
+The web application defaults to <http://localhost:3000>. The API defaults to <http://localhost:3001>. `GET /api/health` is a process liveness check, while `GET /api/health/ready` verifies that the API can execute a minimal query through its existing database connection.
 
 ### 🔐 Important local configuration
 
@@ -180,11 +180,13 @@ Deploy database and API changes in this order:
 1. Install dependencies from the frozen lockfile.
 2. Run `pnpm db:migrate:production` with the migration-only connection secret.
 3. Deploy or restart the Render API with its runtime `DATABASE_URL`.
-4. Verify `GET /api/health`.
+4. Verify `GET /api/health` for process liveness and `GET /api/health/ready` for database readiness.
 5. Deploy the Vercel web application when its code or build-time environment changes.
 6. Run `pnpm smoke:production`.
 
 Environment changes apply only to new deployments. `WEB_ORIGIN` on Render must exactly match the production Vercel origin, and `NEXT_PUBLIC_API_BASE_URL` on Vercel must point to the Render origin without `/api`.
+
+UptimeRobot should monitor <https://nature-lens-api.onrender.com/api/health/ready> every five minutes. This request keeps the Render service active and confirms that the running API can reach Supabase. The readiness check runs only `SELECT 1`; it does not validate migrations, domain tables, PostGIS behavior, or external providers.
 
 For symptoms, log correlation, safe recovery, rollback, and forward-fix guidance, see [RUNBOOK.md](RUNBOOK.md).
 

@@ -2,11 +2,13 @@
 
 > **Project:** Nature Lens
 >
-> **Status:** V1 is deployed, documented, and covered by CI plus a production smoke check
+> **Status:** V1 is deployed, documented, and covered by CI plus production health and smoke checks
 >
 > **Current phase:** Phase 11 · Post-V1 extensions
 >
 > **Last completed step:** 64 · Document architecture and production runbook
+>
+> **Latest completed change:** Add database-backed API readiness check
 >
 > **Current step:** 65 · Add BDL forestry adapter
 >
@@ -23,6 +25,7 @@
 - External JSON is runtime-validated at provider boundaries, normalized into application-owned models, and translated into stable API errors. The frontend validates public API responses with Zod before rendering.
 - Provider HTTP requests use per-provider timeouts, bounded retry where safe, categorized failures, structured logs, and request correlation.
 - Public API inputs are bounded, browser access is restricted to the exact configured web origin, and process-local per-IP throttling applies stricter limits to expensive routes.
+- `GET /api/health` remains a database-independent process liveness check. `GET /api/health/ready` executes `SELECT 1` through the existing database service and returns HTTP 503 when PostgreSQL is unavailable.
 - Production migrations are forward-only and separate from API startup. The production smoke command checks Vercel rendering, Render health, species search, observation synchronization, and a PostGIS bbox read.
 - `README.md` describes the current V1 and local/deployment workflows, `ARCHITECTURE.md` records implemented boundaries and trade-offs, and `RUNBOOK.md` covers production diagnosis, log correlation, rollback, and forward fixes.
 
@@ -51,6 +54,7 @@
 - Every API request gets a server-generated request ID used in structured JSON logs and returned as `X-Request-ID`. There is no distributed trace propagation.
 - Redis, queues, background synchronization, microservices, GraphQL, and advanced GIS infrastructure remain excluded until a concrete requirement justifies them.
 - Production schema changes use forward migrations. Application rollback and database forward fixes are separate recovery strategies.
+- Docker uses process-only liveness, while the intended UptimeRobot target is database readiness every five minutes. Readiness intentionally does not validate migrations, domain tables, PostGIS, or external providers.
 
 ## Known limitations / blockers
 
@@ -98,6 +102,8 @@ See `README.md` for setup and deployment, `ARCHITECTURE.md` for system decisions
 
 ## Verification snapshot
 
+- All 315 API unit tests pass, including HTTP coverage for database-independent liveness plus readiness success and failure.
+- `pnpm format:check`, `pnpm lint`, `pnpm typecheck`, and `git diff --check` pass after the readiness change.
 - The production Vercel application, Render API, and Supabase/PostGIS flow passed `pnpm smoke:production` after step 63.
 - The latest full quality evidence before this documentation-only step includes passing format, lint, type-check, unit, integration, E2E, and production build checks recorded during phases 9 and 10.
 - `pnpm format:check` and `git diff --check` passed after step 64.

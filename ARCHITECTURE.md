@@ -53,6 +53,12 @@ flowchart LR
 
 The frontend primarily talks to the Nature Lens API. Provider orchestration, provider limits, normalization, persistence, and error translation belong to the backend.
 
+### Health boundaries
+
+`GET /api/health` is the NestJS process liveness check. It does not query PostgreSQL and remains the Docker health-check target. `GET /api/health/ready` is the external readiness check: it executes `SELECT 1` through the existing `DatabaseService` and returns HTTP 503 when that query fails.
+
+The intended UptimeRobot monitor targets readiness every five minutes so one lightweight request verifies both the running Render API and its Supabase connection. Readiness deliberately excludes schema, migration, PostGIS, domain-table, cache, and external-provider checks.
+
 ## System boundaries
 
 ### Next.js web
@@ -310,14 +316,14 @@ The API image uses the repository-pinned Node.js and pnpm versions. Build depend
 
 Production migrations are separate from API startup. `pnpm db:migrate:production` reads only `MIGRATION_DATABASE_URL`, verifies order, applies pending migrations in one transaction, and fails immediately when another migration process holds the advisory lock.
 
-The production release order is migration, API deployment, health verification, web deployment when required, and the fail-fast production smoke check. Production database fixes are forward migrations. Application artifacts may be rolled back only when their schema expectations remain compatible; see [RUNBOOK.md](RUNBOOK.md).
+The production release order is migration, API deployment, liveness and readiness verification, web deployment when required, and the fail-fast production smoke check. Production database fixes are forward migrations. Application artifacts may be rolled back only when their schema expectations remain compatible; see [RUNBOOK.md](RUNBOOK.md).
 
 ## Testing boundaries
 
 - **Unit tests** cover runtime validation, mapping, normalization, error translation, service decisions, controller behavior, and persistence collaborators.
 - **Integration tests** apply real migrations to ephemeral PostgreSQL/PostGIS containers and exercise repository, spatial, synchronization, and HTTP behavior with only external providers stubbed.
 - **E2E tests** run the real Next.js application against a deterministic public Nature Lens API fixture for the two primary user journeys. A local empty MapLibre style avoids public tile dependencies.
-- **Production smoke** checks the server-rendered Vercel search, Render health, direct species search, observation synchronization, and a Poland-bounded PostGIS GeoJSON read.
+- **Production smoke** checks the server-rendered Vercel search, Render liveness, direct species search, observation synchronization, and a Poland-bounded PostGIS GeoJSON read. The intended UptimeRobot monitor independently checks database readiness.
 
 The smoke test verifies the normal deployed path but does not prove that a provider was contacted during that run: fresh cache data or stale-if-error fallback may satisfy synchronization safely.
 

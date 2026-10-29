@@ -7,16 +7,18 @@ Never paste connection strings, tokens, provider responses, request headers, or 
 ## Production endpoints and first response
 
 - Web: <https://nature-lens-poland.vercel.app>
-- API health: <https://nature-lens-api.onrender.com/api/health>
+- API liveness: <https://nature-lens-api.onrender.com/api/health>
+- API readiness: <https://nature-lens-api.onrender.com/api/health/ready>
 - End-to-end check: `pnpm smoke:production`
 
 Start with the smallest failing boundary:
 
 1. Open the web root.
 2. Request `/api/health` directly.
-3. Run the production smoke check from a trusted local or CI environment.
-4. Record the failing smoke stage, HTTP status, UTC time, and any `X-Request-ID`.
-5. Inspect the deployment and logs for that boundary before changing configuration.
+3. Request `/api/health/ready` to verify database connectivity.
+4. Run the production smoke check from a trusted local or CI environment.
+5. Record the failing smoke stage, HTTP status, UTC time, and any `X-Request-ID`.
+6. Inspect the deployment and logs for that boundary before changing configuration.
 
 Do not repeatedly restart services or rerun migrations without a new hypothesis. A provider outage, database problem, CORS mismatch, and stale cache require different actions.
 
@@ -49,6 +51,16 @@ Do not repeatedly restart services or rerun migrations without a new hypothesis.
 **Logs:** Check Render startup logs for `Invalid API environment configuration`, database connection errors, migrations/schema errors, and the final process exit.
 
 **Safe action:** Correct the specific validated environment variable, database reachability issue, or schema mismatch and deploy again. Do not weaken startup validation or replace health with a static platform response.
+
+## `/api/health/ready` fails
+
+**Symptom:** `/api/health` returns its expected contract, but `/api/health/ready` returns HTTP 503, times out, or is reported down by UptimeRobot.
+
+**Check:** Treat liveness success as evidence only that the NestJS process is serving requests. Readiness executes `SELECT 1` through the application's existing PostgreSQL pool, so inspect the runtime `DATABASE_URL`, Supabase project status, network reachability, TLS or authentication failures, and pool exhaustion. A readiness success does not prove that migrations, domain tables, PostGIS queries, or external providers work.
+
+**Logs:** Correlate the UptimeRobot failure time with Render request logs and Supabase connection logs. Configure the monitor to request <https://nature-lens-api.onrender.com/api/health/ready> every five minutes.
+
+**Safe action:** Restore database connectivity or valid runtime configuration. Do not add retries, cache the result, replace the query with a domain-table read, or point the monitor at an external provider.
 
 ## Supabase/PostGIS connection failure
 
@@ -199,6 +211,7 @@ Confirm all of the following:
 
 - the web root renders;
 - `/api/health` returns the expected contract;
+- `/api/health/ready` returns HTTP 200 with `{ "status": "ok" }`;
 - `pnpm smoke:production` passes or any reported degraded provider state is understood;
 - no startup or request-error loop remains in Render or Vercel logs;
 - the deployed environment and database target are the intended production ones;
