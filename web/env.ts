@@ -8,11 +8,13 @@ const environmentSchema = z.object({
     .url({ protocol: /^https?$/ })
     .optional()
     .default(defaultMapStyleUrl),
+  VERCEL_PROJECT_PRODUCTION_URL: z.string().trim().min(1).optional(),
 });
 
 const parsedEnvironment = environmentSchema.safeParse({
   NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
   NEXT_PUBLIC_MAP_STYLE_URL: process.env.NEXT_PUBLIC_MAP_STYLE_URL,
+  VERCEL_PROJECT_PRODUCTION_URL: process.env.VERCEL_PROJECT_PRODUCTION_URL,
 });
 
 if (!parsedEnvironment.success) {
@@ -24,3 +26,8 @@ if (!parsedEnvironment.success) {
 }
 
 export const environment = parsedEnvironment.data;
+
+export const productionSiteUrl =
+  environment.VERCEL_PROJECT_PRODUCTION_URL === undefined
+    ? undefined
+    : new URL(`https://${environment.VERCEL_PROJECT_PRODUCTION_URL}`);

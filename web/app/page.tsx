@@ -1,4 +1,5 @@
 import { MapPin, Search } from "lucide-react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +16,11 @@ import type {
   SpeciesSearchResponse,
   SpeciesSearchResult,
 } from "./species-search";
+import { productionSiteUrl } from "../env";
+
+export const metadata: Metadata = productionSiteUrl
+  ? { alternates: { canonical: productionSiteUrl } }
+  : {};
 
 interface HomePageProps {
   searchParams: Promise<{

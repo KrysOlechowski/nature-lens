@@ -393,6 +393,14 @@ The production API runs on Render from `api/Dockerfile`. Render supplies the run
 
 The public API base URL is the HTTPS origin without a path or trailing `/api`, for example `https://nature-lens-api.onrender.com`. API routes retain the application-owned `/api` prefix, including `/api/health`.
 
+### Production web runtime
+
+The production web application runs at `https://nature-lens-poland.vercel.app` from the `web` workspace. Its required `NEXT_PUBLIC_API_BASE_URL` points to the public Render API origin, `https://nature-lens-api.onrender.com`, without the `/api` route prefix. `NEXT_PUBLIC_MAP_STYLE_URL` explicitly selects the public MapLibre style in production and remains optional because the application defaults to OpenFreeMap Liberty. These public values contain no secrets.
+
+Vercel supplies `VERCEL_PROJECT_PRODUCTION_URL` automatically as a hostname without a protocol. The server-side metadata configuration adds `https://` and uses the resulting stable project production URL as its metadata base and home-page canonical URL. It does not use the deployment-specific `VERCEL_URL`, require a `NEXT_PUBLIC_SITE_URL`, or require this Vercel-only value for local builds.
+
+Environment-variable changes in Vercel apply only to new deployments, so redeploy the web application after changing them. The Render API must set `WEB_ORIGIN=https://nature-lens-poland.vercel.app` and be redeployed after that value changes so browser requests receive the matching CORS origin.
+
 Apply pending database migrations before starting a freshly configured environment:
 
 ```bash
